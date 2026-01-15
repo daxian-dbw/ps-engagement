@@ -1,20 +1,19 @@
 """Command-line entrypoint to collect GitHub activity metrics for a maintainer."""
 from __future__ import annotations
 
-import importlib.util
 import os
-from pathlib import Path
 from typing import Iterable, Mapping
+
+from github_events import (
+    get_issue_and_pr_comments_by,
+    get_pr_reviews_by,
+    issues_closed_by,
+    issues_labeled_resolution_by,
+    prs_closed_or_merged_by,
+)
 
 DEFAULT_USER = os.getenv("METRICS_USER", "daxian-dbw")
 DEFAULT_DAYS_BACK = int(os.getenv("METRICS_DAYS_BACK", "10"))
-
-MODULE_PATH = Path(__file__).with_name("github-events.py")
-MODULE_SPEC = importlib.util.spec_from_file_location("github_events", MODULE_PATH)
-if MODULE_SPEC is None or MODULE_SPEC.loader is None:
-    raise ImportError(f"Unable to load github-events module from {MODULE_PATH}")
-github_events = importlib.util.module_from_spec(MODULE_SPEC)
-MODULE_SPEC.loader.exec_module(github_events)  # type: ignore[attr-defined]
 
 
 def _print_section(title: str, rows: Iterable[Mapping]):
@@ -31,11 +30,11 @@ def _print_section(title: str, rows: Iterable[Mapping]):
 def main(user: str = DEFAULT_USER, days_back: int = DEFAULT_DAYS_BACK):
     print(f"Collecting GitHub activity for {user} over the past {days_back} days...")
 
-    comments = github_events.get_issue_and_pr_comments_by(user, days_back)
-    reviews = github_events.get_pr_reviews_by(user, days_back)
-    resolution_issues = github_events.issues_labeled_resolution_by(user, days_back)
-    closed_issues = github_events.issues_closed_by(user, days_back)
-    prs = github_events.prs_closed_or_merged_by(user, days_back)
+    comments = get_issue_and_pr_comments_by(user, days_back)
+    reviews = get_pr_reviews_by(user, days_back)
+    resolution_issues = issues_labeled_resolution_by(user, days_back)
+    closed_issues = issues_closed_by(user, days_back)
+    prs = prs_closed_or_merged_by(user, days_back)
 
     _print_section(
         "Issue / PR Comments",
