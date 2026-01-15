@@ -338,71 +338,72 @@ def _fetch_recent_prs(owner: str, repo: str, since_dt: datetime, page_size: int 
     return results
 
 
-def issues_labeled_resolution_by(
+def issue_activities_by(
     actor_login: str,
     days_back: int = DEFAULT_DAYS_BACK,
     owner: str = TARGET_OWNER,
     repo: str = TARGET_REPO,
-) -> List[Dict]:
+) -> Dict[str, List[Dict]]:
+    """Fetch issues labeled Resolution-* and issues closed by `actor_login` in a single pass.
+
+    Returns a dict with keys 'labeled_resolution' and 'closed', each containing a list of matching issues.
+    """
     since_dt = _since_datetime(days_back)
     actor = actor_login.lower()
-    matches: List[Dict] = []
+    labeled_matches: List[Dict] = []
+    closed_matches: List[Dict] = []
+
     for issue in _fetch_recent_issues(owner, repo, since_dt):
         events = (issue.get("timelineItems") or {}).get("nodes") or []
+        labeled_found = False
+        closed_found = False
+
         for event in events:
-            if event.get("__typename") != "LabeledEvent":
-                continue
-            label = (event.get("label") or {}).get("name") or ""
-            event_actor = (event.get("actor") or {}).get("login")
-            if not label.startswith("Resolution-") or not event_actor:
-                continue
-            if event_actor.lower() != actor:
-                continue
-            if _parse_date(event["createdAt"]) < since_dt:
-                continue
-            matches.append(
-                {
-                    "number": issue["number"],
-                    "title": issue["title"],
-                    "url": issue["url"],
-                    "label": label,
-                    "labeledAt": event["createdAt"],
-                }
-            )
-            break
-    return matches
+            typename = event.get("__typename")
 
+            # Check for Resolution-* labeling
+            if typename == "LabeledEvent" and not labeled_found:
+                label = (event.get("label") or {}).get("name") or ""
+                event_actor = (event.get("actor") or {}).get("login")
+                if label.startswith("Resolution-") and event_actor:
+                    if event_actor.lower() == actor:
+                        created_at = event.get("createdAt")
+                        if created_at and _parse_date(created_at) >= since_dt:
+                            labeled_matches.append(
+                                {
+                                    "number": issue["number"],
+                                    "title": issue["title"],
+                                    "url": issue["url"],
+                                    "label": label,
+                                    "labeledAt": created_at,
+                                }
+                            )
+                            labeled_found = True
 
-def issues_closed_by(
-    actor_login: str,
-    days_back: int = DEFAULT_DAYS_BACK,
-    owner: str = TARGET_OWNER,
-    repo: str = TARGET_REPO,
-) -> List[Dict]:
-    since_dt = _since_datetime(days_back)
-    actor = actor_login.lower()
-    matches: List[Dict] = []
-    for issue in _fetch_recent_issues(owner, repo, since_dt):
-        events = (issue.get("timelineItems") or {}).get("nodes") or []
-        for event in events:
-            if event.get("__typename") != "ClosedEvent":
-                continue
-            event_actor = (event.get("actor") or {}).get("login")
-            if not event_actor or event_actor.lower() != actor:
-                continue
-            if _parse_date(event["createdAt"]) < since_dt:
-                continue
-            matches.append(
-                {
-                    "number": issue["number"],
-                    "title": issue["title"],
-                    "url": issue["url"],
-                    "closedAt": event["createdAt"],
-                }
-            )
-            break
-    return matches
+            # Check for closure
+            elif typename == "ClosedEvent" and not closed_found:
+                event_actor = (event.get("actor") or {}).get("login")
+                if event_actor and event_actor.lower() == actor:
+                    created_at = event.get("createdAt")
+                    if created_at and _parse_date(created_at) >= since_dt:
+                        closed_matches.append(
+                            {
+                                "number": issue["number"],
+                                "title": issue["title"],
+                                "url": issue["url"],
+                                "closedAt": created_at,
+                            }
+                        )
+                        closed_found = True
 
+            # Early exit if both found
+            if labeled_found and closed_found:
+                break
+
+    return {
+        "labelevent": labeled_matches,
+        "closeevent": closed_matches,
+    }
 
 def prs_closed_or_merged_by(
     actor_login: str,
@@ -440,7 +441,6 @@ def prs_closed_or_merged_by(
 __all__ = [
     "get_issue_and_pr_comments_by",
     "get_pr_reviews_by",
-    "issues_labeled_resolution_by",
-    "issues_closed_by",
+    "issue_activities_by",
     "prs_closed_or_merged_by",
 ]

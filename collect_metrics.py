@@ -7,8 +7,7 @@ from typing import Iterable, Mapping
 from github_events import (
     get_issue_and_pr_comments_by,
     get_pr_reviews_by,
-    issues_closed_by,
-    issues_labeled_resolution_by,
+    issue_activities_by,
     prs_closed_or_merged_by,
 )
 
@@ -32,8 +31,9 @@ def main(user: str = DEFAULT_USER, days_back: int = DEFAULT_DAYS_BACK):
 
     comments = get_issue_and_pr_comments_by(user, days_back)
     reviews = get_pr_reviews_by(user, days_back)
-    resolution_issues = issues_labeled_resolution_by(user, days_back)
-    closed_issues = issues_closed_by(user, days_back)
+    issue_activity = issue_activities_by(user, days_back)
+    resolution_issues = issue_activity["labelevent"]
+    closed_issues = issue_activity["closeevent"]
     prs = prs_closed_or_merged_by(user, days_back)
 
     _print_section(
