@@ -109,7 +109,11 @@ query(
         number
         title
         url
+        createdAt
         updatedAt
+        author {
+          login
+        }
         timelineItems(last: 50, itemTypes: [LABELED_EVENT, CLOSED_EVENT]) {
           nodes {
             __typename
@@ -141,9 +145,11 @@ query(
         title
         url
         state
+        createdAt
         updatedAt
-        closedAt
-        mergedAt
+        author {
+          login
+        }
         timelineItems(last: 50, itemTypes: [CLOSED_EVENT, MERGED_EVENT]) {
           nodes {
             __typename
@@ -344,16 +350,35 @@ def issue_activities_by(
     owner: str = TARGET_OWNER,
     repo: str = TARGET_REPO,
 ) -> Dict[str, List[Dict]]:
-    """Fetch issues labeled Resolution-* and issues closed by `actor_login` in a single pass.
+    """Fetch issues opened, labeled Resolution-*/WG-*, and closed by `actor_login` in a single pass.
 
-    Returns a dict with keys 'labeled_resolution' and 'closed', each containing a list of matching issues.
+    Returns a dict with keys 'open', 'label', and 'close', each containing a list of matching issues.
+    Note: Label and close events are not collected for issues opened by the same user.
     """
     since_dt = _since_datetime(days_back)
     actor = actor_login.lower()
+    opened_matches: List[Dict] = []
     labeled_matches: List[Dict] = []
     closed_matches: List[Dict] = []
 
     for issue in _fetch_recent_issues(owner, repo, since_dt):
+        # Check if user is the author of the issue
+        issue_author = (issue.get("author") or {}).get("login")
+        if issue_author and issue_author.lower() == actor:
+            # If user opened the issue, add to opened_matches
+            created_at = issue.get("createdAt")
+            if created_at and _parse_date(created_at) >= since_dt:
+                opened_matches.append(
+                    {
+                        "number": issue["number"],
+                        "title": issue["title"],
+                        "url": issue["url"],
+                        "createdAt": created_at,
+                    }
+                )
+            # Continue to collect label/close events for issues opened by the user
+
+        # For issues not opened by the user, check for label/close events
         events = (issue.get("timelineItems") or {}).get("nodes") or []
         labeled_found = False
         closed_found = False
@@ -361,11 +386,11 @@ def issue_activities_by(
         for event in events:
             typename = event.get("__typename")
 
-            # Check for Resolution-* labeling
+            # Check for Resolution-* or WG-* labeling
             if typename == "LabeledEvent" and not labeled_found:
                 label = (event.get("label") or {}).get("name") or ""
                 event_actor = (event.get("actor") or {}).get("login")
-                if label.startswith("Resolution-") and event_actor:
+                if (label.startswith("Resolution-") or label.startswith("WG-")) and event_actor:
                     if event_actor.lower() == actor:
                         created_at = event.get("createdAt")
                         if created_at and _parse_date(created_at) >= since_dt:
@@ -401,11 +426,12 @@ def issue_activities_by(
                 break
 
     return {
-        "labelevent": labeled_matches,
-        "closeevent": closed_matches,
+        "open": opened_matches,
+        "label": labeled_matches,
+        "close": closed_matches,
     }
 
-def prs_closed_or_merged_by(
+def prs_opened_or_closed_or_merged_by(
     actor_login: str,
     days_back: int = DEFAULT_DAYS_BACK,
     owner: str = TARGET_OWNER,
@@ -415,6 +441,24 @@ def prs_closed_or_merged_by(
     actor = actor_login.lower()
     matches: List[Dict] = []
     for pr in _fetch_recent_prs(owner, repo, since_dt):
+        # Check if user is the author of the PR
+        pr_author = (pr.get("author") or {}).get("login")
+        if pr_author and pr_author.lower() == actor:
+            # Use createdAt for when the PR was opened
+            created_at = pr.get("createdAt")
+            if created_at and _parse_date(created_at) >= since_dt:
+                matches.append(
+                    {
+                        "number": pr["number"],
+                        "title": pr["title"],
+                        "url": pr["url"],
+                        "action": "opened",
+                        "occurredAt": created_at,
+                    }
+                )
+            # Continue to collect the close/merge event for prs opened by the user.
+
+        # Check timeline for close/merge actions by the user
         events = (pr.get("timelineItems") or {}).get("nodes") or []
         for event in events:
             typename = event.get("__typename")
@@ -438,9 +482,109 @@ def prs_closed_or_merged_by(
     return matches
 
 
+def contributions_by(
+    actor_login: str,
+    days_back: int = DEFAULT_DAYS_BACK,
+    owner: str = TARGET_OWNER,
+    repo: str = TARGET_REPO,
+) -> Dict[str, List[Dict]]:
+    """Aggregate all contribution data for a user with filtering rules applied.
+
+    Returns a dict with keys:
+    - 'comments': Issue/PR comments (excluding comments on user's own PRs)
+    - 'reviews': PR reviews (excluding reviews on user's own PRs)
+    - 'issues_opened': Issues opened by the user
+    - 'issues_labeled': Issues labeled Resolution-*/WG-* by the user
+    - 'issues_closed': Issues manually closed by the user (excluding PR-triggered closes)
+    - 'prs_opened': PRs opened by the user
+    - 'prs_merged': PRs merged by the user
+    - 'prs_closed': PRs closed by the user
+    """
+    actor = actor_login.lower()
+
+    # Collect all raw data
+    comments = get_issue_and_pr_comments_by(actor_login, days_back, owner, repo)
+    reviews = get_pr_reviews_by(actor_login, days_back, owner, repo)
+    issue_activities = issue_activities_by(actor_login, days_back, owner, repo)
+    pr_activities = prs_opened_or_closed_or_merged_by(actor_login, days_back, owner, repo)
+
+    # Filter PR comments: exclude comments on user's own PRs
+    filtered_comments = []
+    for comment in comments:
+        pr = comment.get("pullRequest")
+        if pr:
+            # This is a PR comment - check if user is the PR author
+            # We need to check the issue field for author info
+            issue = comment.get("issue")
+            if issue:
+                issue_author = (issue.get("author") or {}).get("login")
+                if issue_author and issue_author.lower() == actor:
+                    continue  # Skip comment on user's own PR
+        filtered_comments.append(comment)
+
+    # Filter PR reviews: exclude reviews on user's own PRs
+    filtered_reviews = []
+    for review in reviews:
+        pr = review.get("pullRequest") or {}
+        pr_author = (pr.get("author") or {}).get("login")
+        if pr_author and pr_author.lower() == actor:
+            continue  # Skip review on user's own PR
+        filtered_reviews.append(review)
+
+    # Separate PR activities by action type
+    prs_opened = []
+    prs_merged = []
+    prs_closed = []
+    pr_merge_times = []  # Track merge times (as datetime objects) for filtering issue closes
+
+    for pr_activity in pr_activities:
+        action = pr_activity.get("action")
+        if action == "opened":
+            prs_opened.append(pr_activity)
+        elif action == "merged":
+            prs_merged.append(pr_activity)
+            merge_time = pr_activity.get("occurredAt")
+            if merge_time:
+                pr_merge_times.append(_parse_date(merge_time))
+        elif action == "closed":
+            prs_closed.append(pr_activity)
+
+    # Filter issue close events: exclude PR-triggered closes
+    issues_closed = []
+    for close_event in issue_activities.get("close", []):
+        closed_at = close_event.get("closedAt")
+        if closed_at and pr_merge_times:
+            closed_dt = _parse_date(closed_at)
+            is_pr_triggered = False
+
+            for merge_dt in pr_merge_times:
+                # Check if issue was closed within 3 seconds after PR merge
+                time_diff = (closed_dt - merge_dt).total_seconds()
+                if 0 <= time_diff <= 3:
+                    is_pr_triggered = True
+                    break
+
+            if is_pr_triggered:
+                continue  # Skip PR-triggered close
+
+        issues_closed.append(close_event)
+
+    return {
+        "comments": filtered_comments,
+        "reviews": filtered_reviews,
+        "issues_opened": issue_activities.get("open", []),
+        "issues_labeled": issue_activities.get("label", []),
+        "issues_closed": issues_closed,
+        "prs_opened": prs_opened,
+        "prs_merged": prs_merged,
+        "prs_closed": prs_closed,
+    }
+
+
 __all__ = [
     "get_issue_and_pr_comments_by",
     "get_pr_reviews_by",
     "issue_activities_by",
-    "prs_closed_or_merged_by",
+    "prs_opened_or_closed_or_merged_by",
+    "contributions_by",
 ]

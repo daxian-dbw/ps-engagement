@@ -5,10 +5,11 @@ import os
 from typing import Iterable, Mapping
 
 from github_events import (
+    contributions_by,
     get_issue_and_pr_comments_by,
     get_pr_reviews_by,
     issue_activities_by,
-    prs_closed_or_merged_by,
+    prs_opened_or_closed_or_merged_by,
 )
 
 DEFAULT_USER = os.getenv("METRICS_USER", "daxian-dbw")
@@ -32,9 +33,9 @@ def main(user: str = DEFAULT_USER, days_back: int = DEFAULT_DAYS_BACK):
     comments = get_issue_and_pr_comments_by(user, days_back)
     reviews = get_pr_reviews_by(user, days_back)
     issue_activity = issue_activities_by(user, days_back)
-    resolution_issues = issue_activity["labelevent"]
-    closed_issues = issue_activity["closeevent"]
-    prs = prs_closed_or_merged_by(user, days_back)
+    resolution_issues = issue_activity["label"]
+    closed_issues = issue_activity["close"]
+    prs = prs_opened_or_closed_or_merged_by(user, days_back)
 
     _print_section(
         "Issue / PR Comments",
@@ -95,6 +96,62 @@ def main(user: str = DEFAULT_USER, days_back: int = DEFAULT_DAYS_BACK):
                 "url": pr.get("url"),
             }
             for pr in prs
+        ),
+    )
+
+    # === Filtered contributions for comparison ===
+    print("\n" + "="*80)
+    print("FILTERED CONTRIBUTIONS (using contributions_by)")
+    print("="*80)
+
+    contributions = contributions_by(user, days_back)
+
+    _print_section(
+        "[FILTERED] Issue / PR Comments",
+        (
+            {
+                "publishedAt": comment.get("publishedAt"),
+                "url": comment.get("url"),
+                ("pr" if comment.get("pullRequest") else "issue"): f"#{comment.get('issue', {}).get('number')} {comment.get('issue', {}).get('title')}",
+            }
+            for comment in contributions["comments"]
+        ),
+    )
+    _print_section(
+        "[FILTERED] PR Reviews",
+        (
+            {
+                "occurredAt": review.get("occurredAt"),
+                "pr": f"#{review.get('pullRequest', {}).get('number')} {review.get('pullRequest', {}).get('title')}",
+                "state": (review.get("pullRequestReview") or {}).get("state"),
+                "url": (review.get("pullRequestReview") or {}).get("url"),
+            }
+            for review in contributions["reviews"]
+        ),
+    )
+    _print_section(
+        "[FILTERED] Issues Closed",
+        (
+            {
+                "number": issue.get("number"),
+                "title": issue.get("title"),
+                "closedAt": issue.get("closedAt"),
+                "url": issue.get("url"),
+            }
+            for issue in contributions["issues_closed"]
+        ),
+    )
+    _print_section(
+        "[FILTERED] PRs Merged",
+        (
+            {
+                "number": pr.get("number"),
+                "title": pr.get("title"),
+                "action": pr.get("action"),
+                "occurredAt": pr.get("occurredAt"),
+                "url": pr.get("url"),
+            }
+            for pr in contributions["prs_merged"]
         ),
     )
 
