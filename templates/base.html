@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="GitHub Maintainer Activity Dashboard - Track and visualize GitHub maintainer contributions">
+    <title>{% block title %}GitHub Maintainer Activity Dashboard{% endblock %}</title>
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    
+    {% block extra_head %}{% endblock %}
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <!-- Header -->
+    <header class="bg-white shadow-sm border-b border-gray-200">
+        <div class="container mx-auto px-4 py-4">
+            <h1 class="text-2xl font-bold text-gray-900">
+                {% block header_title %}GitHub Maintainer Activity Dashboard{% endblock %}
+            </h1>
+        </div>
+    </header>
+    
+    <!-- Main Content -->
+    <main class="container mx-auto px-4 py-6">
+        {% block content %}{% endblock %}
+    </main>
+    
+    <!-- Footer -->
+    <footer class="bg-white border-t border-gray-200 mt-12">
+        <div class="container mx-auto px-4 py-4">
+            <p class="text-sm text-gray-600 text-center">
+                &copy; 2026 GitHub Maintainer Activity Dashboard
+            </p>
+        </div>
+    </footer>
+    
+    <!-- JavaScript -->
+    {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,3 +1,27 @@
 .venv/
 .vscode/
 __pycache__/
+.playwright-mcp
+.pytest_cache
+
+# Environment variables
+.env
+
+# Flask
+instance/
+*.pyc
+*.pyo
+*.log
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test
+.coverage
