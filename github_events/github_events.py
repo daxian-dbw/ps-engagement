@@ -453,6 +453,7 @@ def prs_opened_or_closed_or_merged_by(
                         "title": pr["title"],
                         "url": pr["url"],
                         "action": "opened",
+                        "state": pr["state"],
                         "occurredAt": created_at,
                     }
                 )

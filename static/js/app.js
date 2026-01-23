@@ -636,13 +636,19 @@ class Dashboard {
                 </div>
             `;
         }
-        
+
         // Build review state badge if applicable (for reviews)
         let reviewStateBadge = '';
         if (item.state && (context === 'reviews' || item.type === 'review')) {
             reviewStateBadge = this.createReviewStateBadge(item.state);
         }
-        
+
+        // Build PR state badge if applicable (for PRs opened)
+        let prStateBadge = '';
+        if (item.state && context === 'prs_opened') {
+            prStateBadge = this.createPRStateBadge(item.state);
+        }
+
         // Build label badge if applicable (for labeled items)
         let labelBadge = '';
         if (item.label && context === 'labeled') {
@@ -654,7 +660,7 @@ class Dashboard {
         if (item.action && item.action !== 'opened') {
             actionBadge = this.createActionBadge(item.action);
         }
-        
+
         return `
             <div class="item-card bg-white border border-gray-200 rounded-lg p-4 hover:shadow-lg transition-all duration-200">
                 <div class="flex items-start justify-between gap-3">
@@ -670,6 +676,7 @@ class Dashboard {
                                 </svg>
                             </a>
                             ${reviewStateBadge}
+                            ${prStateBadge}
                             ${labelBadge}
                             ${actionBadge}
                         </div>
@@ -745,6 +752,28 @@ class Dashboard {
         return `
             <span class="inline-flex items-center px-2 py-1 rounded text-xs font-medium ${actionInfo.class}">
                 ${escapeHtml(actionInfo.text)}
+            </span>
+        `;
+    }
+
+    /**
+     * Create a PR state badge HTML
+     * @param {string} state - PR state (OPEN, CLOSED, MERGED)
+     * @returns {string} HTML string for PR state badge
+     */
+    createPRStateBadge(state) {
+        const stateMap = {
+            'OPEN': { text: 'Open', class: 'bg-green-100 text-green-800', icon: '●' },
+            'CLOSED': { text: 'Closed', class: 'bg-red-100 text-red-800', icon: '✗' },
+            'MERGED': { text: 'Merged', class: 'bg-purple-100 text-purple-800', icon: '✓' }
+        };
+
+        const stateInfo = stateMap[state] || { text: state, class: 'bg-gray-100 text-gray-800', icon: '○' };
+
+        return `
+            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${stateInfo.class}">
+                <span class="mr-1">${stateInfo.icon}</span>
+                ${escapeHtml(stateInfo.text)}
             </span>
         `;
     }

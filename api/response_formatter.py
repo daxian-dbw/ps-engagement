@@ -126,6 +126,7 @@ def _format_prs_opened(prs: List[Dict]) -> List[Dict]:
             'title': pr.get('title', ''),
             'url': pr.get('url', ''),
             'action': 'opened',
+            'state': pr.get('state', ''),
             'timestamp': pr.get('occurredAt', pr.get('openedAt', ''))
         })
     return result
