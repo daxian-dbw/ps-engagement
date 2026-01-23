@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
@@ -503,11 +504,19 @@ def contributions_by(
     """
     actor = actor_login.lower()
 
-    # Collect all raw data
-    comments = get_issue_and_pr_comments_by(actor_login, days_back, owner, repo)
-    reviews = get_pr_reviews_by(actor_login, days_back, owner, repo)
-    issue_activities = issue_activities_by(actor_login, days_back, owner, repo)
-    pr_activities = prs_opened_or_closed_or_merged_by(actor_login, days_back, owner, repo)
+    # Collect all raw data in parallel for better performance
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        # Submit all independent data collection tasks
+        future_comments = executor.submit(get_issue_and_pr_comments_by, actor_login, days_back, owner, repo)
+        future_reviews = executor.submit(get_pr_reviews_by, actor_login, days_back, owner, repo)
+        future_issue_activities = executor.submit(issue_activities_by, actor_login, days_back, owner, repo)
+        future_pr_activities = executor.submit(prs_opened_or_closed_or_merged_by, actor_login, days_back, owner, repo)
+
+        # Wait for all results to complete
+        comments = future_comments.result()
+        reviews = future_reviews.result()
+        issue_activities = future_issue_activities.result()
+        pr_activities = future_pr_activities.result()
 
     # Filter PR comments: exclude comments on user's own PRs
     filtered_comments = []

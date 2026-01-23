@@ -7,7 +7,7 @@
 class APIClient {
     constructor(baseURL = '') {
         this.baseURL = baseURL;
-        this.timeout = 30000; // 30 seconds
+        this.timeout = 90000; // 90 seconds - increased for large date ranges
     }
 
     /**
