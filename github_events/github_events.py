@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import requests
 
@@ -170,6 +170,115 @@ query(
 }
 """
 
+TEAM_ISSUES_ENGAGEMENT_QUERY = """
+query(
+  $owner: String!,
+  $repo: String!,
+  $since: DateTime!,
+  $cursor: String,
+  $pageSize: Int = 100
+) {
+  repository(owner: $owner, name: $repo) {
+    issues(
+      first: $pageSize,
+      after: $cursor,
+      filterBy: {since: $since},
+      orderBy: {field: CREATED_AT, direction: DESC}
+    ) {
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+      nodes {
+        number
+        title
+        url
+        createdAt
+        author { login }
+        
+        comments(first: 100) {
+          nodes {
+            author { login }
+            createdAt
+          }
+        }
+        
+        timelineItems(first: 100, itemTypes: [LABELED_EVENT]) {
+          nodes {
+            __typename
+            ... on LabeledEvent {
+              createdAt
+              actor { login }
+              label { name }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
+TEAM_PRS_ENGAGEMENT_QUERY = """
+query(
+  $owner: String!,
+  $repo: String!,
+  $since: DateTime!,
+  $cursor: String,
+  $pageSize: Int = 100
+) {
+  repository(owner: $owner, name: $repo) {
+    pullRequests(
+      first: $pageSize,
+      after: $cursor,
+      orderBy: {field: CREATED_AT, direction: DESC}
+    ) {
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+      nodes {
+        number
+        title
+        url
+        createdAt
+        author { login }
+        state
+        
+        comments(first: 100) {
+          nodes {
+            author { login }
+            createdAt
+          }
+        }
+        
+        reviews(first: 100) {
+          nodes {
+            author { login }
+            createdAt
+            state
+          }
+        }
+        
+        timelineItems(first: 50, itemTypes: [MERGED_EVENT, CLOSED_EVENT]) {
+          nodes {
+            __typename
+            ... on MergedEvent {
+              createdAt
+              actor { login }
+            }
+            ... on ClosedEvent {
+              createdAt
+              actor { login }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
 
 # --- Helpers ----------------------------------------------------------------
 def _require_token(token: str = GITHUB_TOKEN) -> str:
@@ -195,6 +304,88 @@ def _parse_date(date_str: str) -> datetime:
 
 def _since_datetime(days_back: int) -> datetime:
     return datetime.utcnow() - timedelta(days=days_back)
+
+
+def _check_issue_engagement(issue: Dict, team_members: List[str]) -> bool:
+    """
+    Check if an issue has team engagement.
+    
+    Criteria:
+    - Has comment from any team member
+    - Has "Resolution-*" label applied by any team member
+    
+    Args:
+        issue: Issue data from GraphQL
+        team_members: List of team member GitHub usernames
+    
+    Returns:
+        True if issue has team engagement, False otherwise
+    """
+    team_set = set(team_members)
+    
+    # Check comments
+    comments = issue.get("comments", {}).get("nodes", [])
+    for comment in comments:
+        author = comment.get("author", {}).get("login")
+        if author in team_set:
+            return True
+    
+    # Check labels (Resolution-* labels)
+    timeline = issue.get("timelineItems", {}).get("nodes", [])
+    for event in timeline:
+        if event.get("__typename") == "LabeledEvent":
+            actor = event.get("actor", {}).get("login")
+            label_name = event.get("label", {}).get("name", "")
+            
+            if actor in team_set and label_name.startswith("Resolution-"):
+                return True
+    
+    return False
+
+
+def _check_pr_engagement(pr: Dict, team_members: List[str]) -> bool:
+    """
+    Check if a PR has team engagement.
+    
+    Criteria:
+    - Has comment from any team member
+    - Has review from any team member
+    - Was merged by any team member
+    - Was closed by any team member
+    
+    Args:
+        pr: PR data from GraphQL
+        team_members: List of team member GitHub usernames
+    
+    Returns:
+        True if PR has team engagement, False otherwise
+    """
+    team_set = set(team_members)
+    
+    # Check comments
+    comments = pr.get("comments", {}).get("nodes", [])
+    for comment in comments:
+        author = comment.get("author", {}).get("login")
+        if author in team_set:
+            return True
+    
+    # Check reviews
+    reviews = pr.get("reviews", {}).get("nodes", [])
+    for review in reviews:
+        author = review.get("author", {}).get("login")
+        if author in team_set:
+            return True
+    
+    # Check merge/close events
+    timeline = pr.get("timelineItems", {}).get("nodes", [])
+    for event in timeline:
+        event_type = event.get("__typename")
+        if event_type in ["MergedEvent", "ClosedEvent"]:
+            actor = event.get("actor", {}).get("login")
+            if actor in team_set:
+                return True
+    
+    return False
 
 
 # --- Issue comment queries --------------------------------------------------
@@ -591,10 +782,194 @@ def contributions_by(
     }
 
 
+# --- Team engagement functions ---------------------------------------------
+def get_team_issue_engagement(
+    team_members: List[str],
+    days_back: int = DEFAULT_DAYS_BACK,
+    owner: str = TARGET_OWNER,
+    repo: str = TARGET_REPO,
+) -> Dict[str, Any]:
+    """
+    Calculate team engagement ratio for issues opened in the past N days.
+    
+    Args:
+        team_members: List of GitHub usernames for team members
+        days_back: Number of days to look back
+        owner: Repository owner
+        repo: Repository name
+    
+    Returns:
+        Dictionary with:
+        - total_issues: Total issues opened in timeframe
+        - team_engaged: Number of issues with team engagement
+        - team_unattended: Number of issues without team engagement
+        - engagement_ratio: Ratio of engaged issues (0.0 to 1.0)
+        - engaged_issues: List of engaged issue details
+        - unattended_issues: List of unattended issue details
+    """
+    since_dt = _since_datetime(days_back)
+    iso_since = since_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    
+    all_issues = []
+    cursor = None
+    
+    # Fetch all issues created in timeframe
+    while True:
+        variables = {
+            "owner": owner,
+            "repo": repo,
+            "since": iso_since,
+            "cursor": cursor,
+            "pageSize": 100
+        }
+        data = _graphql_request(TEAM_ISSUES_ENGAGEMENT_QUERY, variables)
+        repo_data = data.get("repository", {})
+        issues_conn = repo_data.get("issues", {})
+        nodes = issues_conn.get("nodes", [])
+        
+        # Filter issues created after since_dt (filterBy might include updated)
+        for issue in nodes:
+            created_at = issue.get("createdAt")
+            if created_at and _parse_date(created_at) >= since_dt:
+                all_issues.append(issue)
+        
+        page_info = issues_conn.get("pageInfo", {})
+        if not page_info.get("hasNextPage"):
+            break
+        cursor = page_info.get("endCursor")
+    
+    # Analyze engagement
+    engaged_issues = []
+    unattended_issues = []
+    
+    for issue in all_issues:
+        is_engaged = _check_issue_engagement(issue, team_members)
+        
+        issue_info = {
+            "number": issue.get("number"),
+            "title": issue.get("title"),
+            "url": issue.get("url"),
+            "created_at": issue.get("createdAt"),
+            "author": issue.get("author", {}).get("login")
+        }
+        
+        if is_engaged:
+            engaged_issues.append(issue_info)
+        else:
+            unattended_issues.append(issue_info)
+    
+    total = len(all_issues)
+    engaged = len(engaged_issues)
+    unattended = len(unattended_issues)
+    ratio = engaged / total if total > 0 else 0.0
+    
+    return {
+        "total_issues": total,
+        "team_engaged": engaged,
+        "team_unattended": unattended,
+        "engagement_ratio": ratio,
+        "engaged_issues": engaged_issues,
+        "unattended_issues": unattended_issues
+    }
+
+
+def get_team_pr_engagement(
+    team_members: List[str],
+    days_back: int = DEFAULT_DAYS_BACK,
+    owner: str = TARGET_OWNER,
+    repo: str = TARGET_REPO,
+) -> Dict[str, Any]:
+    """
+    Calculate team engagement ratio for PRs opened in the past N days.
+    
+    Args:
+        team_members: List of GitHub usernames for team members
+        days_back: Number of days to look back
+        owner: Repository owner
+        repo: Repository name
+    
+    Returns:
+        Dictionary with:
+        - total_prs: Total PRs opened in timeframe
+        - team_engaged: Number of PRs with team engagement
+        - team_unattended: Number of PRs without team engagement
+        - engagement_ratio: Ratio of engaged PRs (0.0 to 1.0)
+        - engaged_prs: List of engaged PR details
+        - unattended_prs: List of unattended PR details
+    """
+    since_dt = _since_datetime(days_back)
+    iso_since = since_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    
+    all_prs = []
+    cursor = None
+    
+    # Fetch all PRs created in timeframe
+    while True:
+        variables = {
+            "owner": owner,
+            "repo": repo,
+            "since": iso_since,
+            "cursor": cursor,
+            "pageSize": 100
+        }
+        data = _graphql_request(TEAM_PRS_ENGAGEMENT_QUERY, variables)
+        repo_data = data.get("repository", {})
+        prs_conn = repo_data.get("pullRequests", {})
+        nodes = prs_conn.get("nodes", [])
+        
+        # Filter PRs created after since_dt
+        for pr in nodes:
+            created_at = pr.get("createdAt")
+            if created_at and _parse_date(created_at) >= since_dt:
+                all_prs.append(pr)
+        
+        page_info = prs_conn.get("pageInfo", {})
+        if not page_info.get("hasNextPage"):
+            break
+        cursor = page_info.get("endCursor")
+    
+    # Analyze engagement
+    engaged_prs = []
+    unattended_prs = []
+    
+    for pr in all_prs:
+        is_engaged = _check_pr_engagement(pr, team_members)
+        
+        pr_info = {
+            "number": pr.get("number"),
+            "title": pr.get("title"),
+            "url": pr.get("url"),
+            "created_at": pr.get("createdAt"),
+            "author": pr.get("author", {}).get("login"),
+            "state": pr.get("state")
+        }
+        
+        if is_engaged:
+            engaged_prs.append(pr_info)
+        else:
+            unattended_prs.append(pr_info)
+    
+    total = len(all_prs)
+    engaged = len(engaged_prs)
+    unattended = len(unattended_prs)
+    ratio = engaged / total if total > 0 else 0.0
+    
+    return {
+        "total_prs": total,
+        "team_engaged": engaged,
+        "team_unattended": unattended,
+        "engagement_ratio": ratio,
+        "engaged_prs": engaged_prs,
+        "unattended_prs": unattended_prs
+    }
+
+
 __all__ = [
     "get_issue_and_pr_comments_by",
     "get_pr_reviews_by",
     "issue_activities_by",
     "prs_opened_or_closed_or_merged_by",
     "contributions_by",
+    "get_team_issue_engagement",
+    "get_team_pr_engagement",
 ]
