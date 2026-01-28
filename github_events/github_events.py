@@ -15,6 +15,8 @@ TARGET_OWNER = os.getenv("GITHUB_OWNER", "PowerShell")
 TARGET_REPO = os.getenv("GITHUB_REPO", "PowerShell")
 TARGET_REPO_FULL = f"{TARGET_OWNER}/{TARGET_REPO}"
 DEFAULT_DAYS_BACK = int(os.getenv("GITHUB_DAYS_BACK", "30"))
+PS_TEAM_MEMBERS: set[str] = {"SeeminglyScience", "TravisEz13", "adityapatwardhan", "daxian-dbw", "jshigetomi", "SteveL-MSFT", "anamnavi", "sdwheeler", "theJasonHelmick"}
+PS_CONTRIBUTORS: set[str] = {"iSazonov", "jborean93", "MartinGC94", "mklement0", "kilasuit", "237dmitry", "jhoneill", "doctordns" }
 
 
 # --- GraphQL documents -----------------------------------------------------
@@ -99,6 +101,7 @@ query(
     issues(
       first: $issuesPageSize,
       after: $issuesCursor,
+      states: [OPEN, CLOSED],
       orderBy: {field: UPDATED_AT, direction: DESC},
       filterBy: {since: $since}
     ) @include(if: $includeIssues) {
@@ -182,6 +185,7 @@ query(
     issues(
       first: $pageSize,
       after: $cursor,
+      states: [OPEN, CLOSED],
       filterBy: {since: $since},
       orderBy: {field: CREATED_AT, direction: DESC}
     ) {
@@ -194,6 +198,7 @@ query(
         title
         url
         createdAt
+        state
         author { login }
         
         comments(first: 100) {
@@ -203,13 +208,24 @@ query(
           }
         }
         
-        timelineItems(first: 100, itemTypes: [LABELED_EVENT]) {
+        timelineItems(first: 100, itemTypes: [LABELED_EVENT, CLOSED_EVENT]) {
           nodes {
             __typename
             ... on LabeledEvent {
               createdAt
               actor { login }
               label { name }
+            }
+            ... on ClosedEvent {
+              createdAt
+              actor { login }
+              closer {
+                __typename
+                ... on PullRequest {
+                  number
+                  url
+                }
+              }
             }
           }
         }
@@ -223,7 +239,6 @@ TEAM_PRS_ENGAGEMENT_QUERY = """
 query(
   $owner: String!,
   $repo: String!,
-  $since: DateTime!,
   $cursor: String,
   $pageSize: Int = 100
 ) {
@@ -231,6 +246,7 @@ query(
     pullRequests(
       first: $pageSize,
       after: $cursor,
+      states: [OPEN, CLOSED, MERGED],
       orderBy: {field: CREATED_AT, direction: DESC}
     ) {
       pageInfo {
@@ -306,44 +322,64 @@ def _since_datetime(days_back: int) -> datetime:
     return datetime.utcnow() - timedelta(days=days_back)
 
 
-def _check_issue_engagement(issue: Dict, team_members: List[str]) -> bool:
+def _check_issue_engagement(issue: Dict, team_members: set[str], debug: bool = False) -> bool:
     """
-    Check if an issue has team engagement.
+    Check if an issue has team engagement and collect close information.
     
-    Criteria:
+    Criteria for engagement:
     - Has comment from any team member
     - Has "Resolution-*" label applied by any team member
+    - Was closed by any team member
     
     Args:
         issue: Issue data from GraphQL
-        team_members: List of team member GitHub usernames
+        team_members: Set of team member GitHub usernames
+        debug: If True, print debugging messages about engagement found
     
     Returns:
         True if issue has team engagement, False otherwise
     """
-    team_set = set(team_members)
+    issue_number = issue.get("number")
+    
+    # Check labels (Resolution-* labels) and close events
+    timeline = issue.get("timelineItems", {}).get("nodes", [])
+    for event in timeline:
+        event_type = event.get("__typename")
+        
+        if event_type == "LabeledEvent":
+            actor = event.get("actor", {}).get("login")
+            label_name = event.get("label", {}).get("name", "")
+            # An issue reviewed by WG is considered engaged by the team.
+            if label_name == "WG-Reviewed":
+                if debug:
+                    print(f"Issue #{issue_number}: engagement='label', actor='{actor}', label='WG-Reviewed'")
+                return True
+            
+            if actor in team_members and label_name.startswith("Resolution-"):
+                if debug:
+                    print(f"Issue #{issue_number}: engagement='label', actor='{actor}', label='{label_name}'")
+                return True
+        
+        elif event_type == "ClosedEvent":
+            actor = event.get("actor", {}).get("login")
+            if actor in team_members:
+                if debug:
+                    print(f"Issue #{issue_number}: engagement='close', actor='{actor}'")
+                return True
     
     # Check comments
     comments = issue.get("comments", {}).get("nodes", [])
     for comment in comments:
         author = comment.get("author", {}).get("login")
-        if author in team_set:
+        if author in team_members:
+            if debug:
+                print(f"Issue #{issue_number}: engagement='comment', actor='{author}'")
             return True
-    
-    # Check labels (Resolution-* labels)
-    timeline = issue.get("timelineItems", {}).get("nodes", [])
-    for event in timeline:
-        if event.get("__typename") == "LabeledEvent":
-            actor = event.get("actor", {}).get("login")
-            label_name = event.get("label", {}).get("name", "")
-            
-            if actor in team_set and label_name.startswith("Resolution-"):
-                return True
     
     return False
 
 
-def _check_pr_engagement(pr: Dict, team_members: List[str]) -> bool:
+def _check_pr_engagement(pr: Dict, team_members: set[str], debug: bool = False) -> bool:
     """
     Check if a PR has team engagement.
     
@@ -355,26 +391,13 @@ def _check_pr_engagement(pr: Dict, team_members: List[str]) -> bool:
     
     Args:
         pr: PR data from GraphQL
-        team_members: List of team member GitHub usernames
+        team_members: Set of team member GitHub usernames
+        debug: If True, print debugging messages about engagement found
     
     Returns:
         True if PR has team engagement, False otherwise
     """
-    team_set = set(team_members)
-    
-    # Check comments
-    comments = pr.get("comments", {}).get("nodes", [])
-    for comment in comments:
-        author = comment.get("author", {}).get("login")
-        if author in team_set:
-            return True
-    
-    # Check reviews
-    reviews = pr.get("reviews", {}).get("nodes", [])
-    for review in reviews:
-        author = review.get("author", {}).get("login")
-        if author in team_set:
-            return True
+    pr_number = pr.get("number")
     
     # Check merge/close events
     timeline = pr.get("timelineItems", {}).get("nodes", [])
@@ -382,8 +405,30 @@ def _check_pr_engagement(pr: Dict, team_members: List[str]) -> bool:
         event_type = event.get("__typename")
         if event_type in ["MergedEvent", "ClosedEvent"]:
             actor = event.get("actor", {}).get("login")
-            if actor in team_set:
+            if actor in team_members:
+                if debug:
+                    action = "merged" if event_type == "MergedEvent" else "closed"
+                    print(f"PR #{pr_number}: engagement='{action}', actor='{actor}'")
                 return True
+    
+    # Check comments
+    comments = pr.get("comments", {}).get("nodes", [])
+    for comment in comments:
+        author = comment.get("author", {}).get("login")
+        if author in team_members:
+            if debug:
+                print(f"PR #{pr_number}: engagement='comment', actor='{author}'")
+            return True
+    
+    # Check reviews
+    reviews = pr.get("reviews", {}).get("nodes", [])
+    for review in reviews:
+        author = review.get("author", {}).get("login")
+        if author in team_members:
+            if debug:
+                review_state = review.get("state", "")
+                print(f"PR #{pr_number}: engagement='review', actor='{author}', state='{review_state}'")
+            return True
     
     return False
 
@@ -784,19 +829,21 @@ def contributions_by(
 
 # --- Team engagement functions ---------------------------------------------
 def get_team_issue_engagement(
-    team_members: List[str],
+    team_members: set[str] = PS_TEAM_MEMBERS,
     days_back: int = DEFAULT_DAYS_BACK,
     owner: str = TARGET_OWNER,
     repo: str = TARGET_REPO,
+    debug: bool = False,
 ) -> Dict[str, Any]:
     """
     Calculate team engagement ratio for issues opened in the past N days.
     
     Args:
-        team_members: List of GitHub usernames for team members
+        team_members: Set of GitHub usernames for team members
         days_back: Number of days to look back
         owner: Repository owner
         repo: Repository name
+        debug: If True, print debugging messages about engagement found
     
     Returns:
         Dictionary with:
@@ -804,8 +851,13 @@ def get_team_issue_engagement(
         - team_engaged: Number of issues with team engagement
         - team_unattended: Number of issues without team engagement
         - engagement_ratio: Ratio of engaged issues (0.0 to 1.0)
+        - manually_closed: Number of issues manually closed by team
+        - pr_triggered_closed: Number of issues closed by PR merge
+        - closed_ratio: Ratio of closed issues (manual + PR-triggered) to total (0.0 to 1.0)
         - engaged_issues: List of engaged issue details
         - unattended_issues: List of unattended issue details
+        - manually_closed_issues: List of manually closed issue details
+        - pr_triggered_closed_issues: List of PR-triggered closed issue details
     """
     since_dt = _since_datetime(days_back)
     iso_since = since_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -838,12 +890,14 @@ def get_team_issue_engagement(
             break
         cursor = page_info.get("endCursor")
     
-    # Analyze engagement
+    # Analyze engagement and close types
     engaged_issues = []
     unattended_issues = []
+    manually_closed_issues = []
+    pr_triggered_closed_issues = []
     
     for issue in all_issues:
-        is_engaged = _check_issue_engagement(issue, team_members)
+        is_engaged = _check_issue_engagement(issue, team_members, debug)
         
         issue_info = {
             "number": issue.get("number"),
@@ -857,36 +911,81 @@ def get_team_issue_engagement(
             engaged_issues.append(issue_info)
         else:
             unattended_issues.append(issue_info)
+        
+        # Check for close events (only if issue is currently closed)
+        # We want to collect metrics about closed issues (manually vs. PR merge)
+        if issue.get("state") == "CLOSED":
+            # Find the LAST ClosedEvent by a team member (issue could be closed/reopened multiple times)
+            timeline = issue.get("timelineItems", {}).get("nodes", [])
+            last_close_event = None
+            
+            for event in timeline:
+                if event.get("__typename") == "ClosedEvent":
+                    # Store this event (will keep the last one)
+                    last_close_event = event
+            
+            # Process the last close event if found
+            if last_close_event:
+                actor = last_close_event.get("actor", {}).get("login")
+                closer = last_close_event.get("closer")
+                
+                close_info = {
+                    "number": issue.get("number"),
+                    "title": issue.get("title"),
+                    "url": issue.get("url"),
+                    "closed_by": actor
+                }
+                
+                # Check if closed by PR or manually
+                if closer and closer.get("__typename") == "PullRequest":
+                    # PR-triggered close
+                    close_info["pr_number"] = closer.get("number")
+                    close_info["pr_url"] = closer.get("url")
+                    pr_triggered_closed_issues.append(close_info)
+                else:
+                    # Manual close
+                    manually_closed_issues.append(close_info)
     
     total = len(all_issues)
     engaged = len(engaged_issues)
     unattended = len(unattended_issues)
     ratio = engaged / total if total > 0 else 0.0
+    manually_closed = len(manually_closed_issues)
+    pr_triggered_closed = len(pr_triggered_closed_issues)
+    total_closed = manually_closed + pr_triggered_closed
+    closed_ratio = total_closed / total if total > 0 else 0.0
     
     return {
         "total_issues": total,
         "team_engaged": engaged,
         "team_unattended": unattended,
         "engagement_ratio": ratio,
+        "manually_closed": manually_closed,
+        "pr_triggered_closed": pr_triggered_closed,
+        "closed_ratio": closed_ratio,
         "engaged_issues": engaged_issues,
-        "unattended_issues": unattended_issues
+        "unattended_issues": unattended_issues,
+        "manually_closed_issues": manually_closed_issues,
+        "pr_triggered_closed_issues": pr_triggered_closed_issues
     }
 
 
 def get_team_pr_engagement(
-    team_members: List[str],
+    team_members: set[str] = PS_TEAM_MEMBERS,
     days_back: int = DEFAULT_DAYS_BACK,
     owner: str = TARGET_OWNER,
     repo: str = TARGET_REPO,
+    debug: bool = False,
 ) -> Dict[str, Any]:
     """
     Calculate team engagement ratio for PRs opened in the past N days.
     
     Args:
-        team_members: List of GitHub usernames for team members
+        team_members: Set of GitHub usernames for team members
         days_back: Number of days to look back
         owner: Repository owner
         repo: Repository name
+        debug: If True, print debugging messages about engagement found
     
     Returns:
         Dictionary with:
@@ -894,11 +993,14 @@ def get_team_pr_engagement(
         - team_engaged: Number of PRs with team engagement
         - team_unattended: Number of PRs without team engagement
         - engagement_ratio: Ratio of engaged PRs (0.0 to 1.0)
+        - merged: Number of PRs merged by team
+        - closed: Number of PRs closed (without merge) by team
         - engaged_prs: List of engaged PR details
         - unattended_prs: List of unattended PR details
+        - merged_prs: List of merged PR details
+        - closed_prs: List of closed PR details
     """
     since_dt = _since_datetime(days_back)
-    iso_since = since_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
     
     all_prs = []
     cursor = None
@@ -908,7 +1010,6 @@ def get_team_pr_engagement(
         variables = {
             "owner": owner,
             "repo": repo,
-            "since": iso_since,
             "cursor": cursor,
             "pageSize": 100
         }
@@ -918,22 +1019,32 @@ def get_team_pr_engagement(
         nodes = prs_conn.get("nodes", [])
         
         # Filter PRs created after since_dt
+        stop_paging = False
         for pr in nodes:
             created_at = pr.get("createdAt")
             if created_at and _parse_date(created_at) >= since_dt:
                 all_prs.append(pr)
+            elif created_at:
+                # PRs are ordered by CREATED_AT DESC, so if we hit an old one, stop
+                stop_paging = True
+                break
+        
+        if stop_paging:
+            break
         
         page_info = prs_conn.get("pageInfo", {})
         if not page_info.get("hasNextPage"):
             break
         cursor = page_info.get("endCursor")
     
-    # Analyze engagement
+    # Analyze engagement and merge/close actions
     engaged_prs = []
     unattended_prs = []
+    merged_prs = []
+    closed_prs = []
     
     for pr in all_prs:
-        is_engaged = _check_pr_engagement(pr, team_members)
+        is_engaged = _check_pr_engagement(pr, team_members, debug)
         
         pr_info = {
             "number": pr.get("number"),
@@ -948,23 +1059,74 @@ def get_team_pr_engagement(
             engaged_prs.append(pr_info)
         else:
             unattended_prs.append(pr_info)
+        
+        # Check PR state to categorize merged vs closed
+        state = pr.get("state")
+        if state == "MERGED":
+            merged_prs.append(pr_info)
+        elif state == "CLOSED":
+            closed_prs.append(pr_info)
     
     total = len(all_prs)
     engaged = len(engaged_prs)
     unattended = len(unattended_prs)
     ratio = engaged / total if total > 0 else 0.0
+    merged = len(merged_prs)
+    closed = len(closed_prs)
+    finish_ratio = (closed + merged) / total if total > 0 else 0.0
     
     return {
         "total_prs": total,
         "team_engaged": engaged,
         "team_unattended": unattended,
         "engagement_ratio": ratio,
+        "merged": merged,
+        "closed": closed,
+        "finish_ratio": finish_ratio,
         "engaged_prs": engaged_prs,
-        "unattended_prs": unattended_prs
+        "unattended_prs": unattended_prs,
+        "merged_prs": merged_prs,
+        "closed_prs": closed_prs
+    }
+
+
+def get_team_engagement(
+    team_members: set[str] = PS_TEAM_MEMBERS,
+    days_back: int = DEFAULT_DAYS_BACK,
+    owner: str = TARGET_OWNER,
+    repo: str = TARGET_REPO,
+    debug: bool = False,
+) -> Dict[str, Any]:
+    """
+    Calculate team engagement for both issues and PRs in parallel.
+    
+    Args:
+        team_members: Set of GitHub usernames for team members
+        days_back: Number of days to look back
+        owner: Repository owner
+        repo: Repository name
+    
+    Returns:
+        Dictionary with:
+        - issue: Results from get_team_issue_engagement
+        - pr: Results from get_team_pr_engagement
+    """
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        future_issues = executor.submit(get_team_issue_engagement, team_members, days_back, owner, repo, debug)
+        future_prs = executor.submit(get_team_pr_engagement, team_members, days_back, owner, repo, debug)
+        
+        issue_engagement = future_issues.result()
+        pr_engagement = future_prs.result()
+    
+    return {
+        "issue": issue_engagement,
+        "pr": pr_engagement
     }
 
 
 __all__ = [
+    "PS_TEAM_MEMBERS",
+    "PS_CONTRIBUTORS",
     "get_issue_and_pr_comments_by",
     "get_pr_reviews_by",
     "issue_activities_by",
@@ -972,4 +1134,5 @@ __all__ = [
     "contributions_by",
     "get_team_issue_engagement",
     "get_team_pr_engagement",
+    "get_team_engagement",
 ]
