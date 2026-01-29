@@ -129,6 +129,13 @@ query(
             ... on ClosedEvent {
               createdAt
               actor { login }
+              closer {
+                __typename
+                ... on PullRequest {
+                  number
+                  url
+                }
+              }
             }
           }
         }
@@ -615,7 +622,7 @@ def issue_activities_by(
                 )
             # Continue to collect label/close events for issues opened by the user
 
-        # For issues not opened by the user, check for label/close events
+        # Check for label/close events
         events = (issue.get("timelineItems") or {}).get("nodes") or []
         labeled_found = False
         closed_found = False
@@ -642,10 +649,15 @@ def issue_activities_by(
                             )
                             labeled_found = True
 
-            # Check for closure
+            # Check for closure (exclude PR-triggered closes)
             elif typename == "ClosedEvent" and not closed_found:
                 event_actor = (event.get("actor") or {}).get("login")
                 if event_actor and event_actor.lower() == actor:
+                    # Skip PR-triggered closes
+                    closer = event.get("closer")
+                    if closer and closer.get("__typename") == "PullRequest":
+                        continue
+                    
                     created_at = event.get("createdAt")
                     if created_at and _parse_date(created_at) >= since_dt:
                         closed_matches.append(
@@ -668,7 +680,7 @@ def issue_activities_by(
         "close": closed_matches,
     }
 
-def prs_opened_or_closed_or_merged_by(
+def pr_activities_by(
     actor_login: str,
     days_back: int = DEFAULT_DAYS_BACK,
     owner: str = TARGET_OWNER,
@@ -746,7 +758,7 @@ def contributions_by(
         future_comments = executor.submit(get_issue_and_pr_comments_by, actor_login, days_back, owner, repo)
         future_reviews = executor.submit(get_pr_reviews_by, actor_login, days_back, owner, repo)
         future_issue_activities = executor.submit(issue_activities_by, actor_login, days_back, owner, repo)
-        future_pr_activities = executor.submit(prs_opened_or_closed_or_merged_by, actor_login, days_back, owner, repo)
+        future_pr_activities = executor.submit(pr_activities_by, actor_login, days_back, owner, repo)
 
         # Wait for all results to complete
         comments = future_comments.result()
@@ -781,7 +793,6 @@ def contributions_by(
     prs_opened = []
     prs_merged = []
     prs_closed = []
-    pr_merge_times = []  # Track merge times (as datetime objects) for filtering issue closes
 
     for pr_activity in pr_activities:
         action = pr_activity.get("action")
@@ -789,38 +800,15 @@ def contributions_by(
             prs_opened.append(pr_activity)
         elif action == "merged":
             prs_merged.append(pr_activity)
-            merge_time = pr_activity.get("occurredAt")
-            if merge_time:
-                pr_merge_times.append(_parse_date(merge_time))
         elif action == "closed":
             prs_closed.append(pr_activity)
-
-    # Filter issue close events: exclude PR-triggered closes
-    issues_closed = []
-    for close_event in issue_activities.get("close", []):
-        closed_at = close_event.get("closedAt")
-        if closed_at and pr_merge_times:
-            closed_dt = _parse_date(closed_at)
-            is_pr_triggered = False
-
-            for merge_dt in pr_merge_times:
-                # Check if issue was closed within 3 seconds after PR merge
-                time_diff = (closed_dt - merge_dt).total_seconds()
-                if 0 <= time_diff <= 3:
-                    is_pr_triggered = True
-                    break
-
-            if is_pr_triggered:
-                continue  # Skip PR-triggered close
-
-        issues_closed.append(close_event)
 
     return {
         "comments": filtered_comments,
         "reviews": filtered_reviews,
         "issues_opened": issue_activities.get("open", []),
         "issues_labeled": issue_activities.get("label", []),
-        "issues_closed": issues_closed,
+        "issues_closed": issue_activities.get("close", []),
         "prs_opened": prs_opened,
         "prs_merged": prs_merged,
         "prs_closed": prs_closed,
@@ -913,7 +901,7 @@ def get_team_issue_engagement(
             unattended_issues.append(issue_info)
         
         # Check for close events (only if issue is currently closed)
-        # We want to collect metrics about closed issues (manually vs. PR merge)
+        # We want to collect metrics about closed issues (manually vs. PR merge, by anyone).
         if issue.get("state") == "CLOSED":
             # Find the LAST ClosedEvent by a team member (issue could be closed/reopened multiple times)
             timeline = issue.get("timelineItems", {}).get("nodes", [])
@@ -1060,7 +1048,7 @@ def get_team_pr_engagement(
         else:
             unattended_prs.append(pr_info)
         
-        # Check PR state to categorize merged vs closed
+        # Check PR state to categorize merged vs closed, by anyone
         state = pr.get("state")
         if state == "MERGED":
             merged_prs.append(pr_info)
@@ -1130,7 +1118,7 @@ __all__ = [
     "get_issue_and_pr_comments_by",
     "get_pr_reviews_by",
     "issue_activities_by",
-    "prs_opened_or_closed_or_merged_by",
+    "pr_activities_by",
     "contributions_by",
     "get_team_issue_engagement",
     "get_team_pr_engagement",
