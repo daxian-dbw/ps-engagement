@@ -6,7 +6,7 @@ activity metrics.
 """
 
 from flask import jsonify, request, current_app
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 from . import api_bp
 from .response_formatter import format_metrics_response
@@ -175,9 +175,14 @@ def get_metrics():
 
         # Call github_events module to get contributions
         try:
+            # Convert days_back to date range
+            to_date = datetime.utcnow()
+            from_date = to_date - timedelta(days=days)
+            
             raw_data = github_events.contributions_by(
                 actor_login=user,
-                days_back=days,
+                from_date=from_date,
+                to_date=to_date,
                 owner=owner,
                 repo=repo
             )

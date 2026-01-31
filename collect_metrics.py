@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 from typing import Iterable, Mapping
+from datetime import datetime, timedelta
 
 from github_events import (
     contributions_by,
@@ -19,6 +20,9 @@ DEFAULT_USER = os.getenv("METRICS_USER", "daxian-dbw")
 DEFAULT_DAYS_BACK = int(os.getenv("METRICS_DAYS_BACK", "30"))
 
 
+def _since_datetime(days_back: int) -> datetime:
+    return datetime.utcnow() - timedelta(days=days_back)
+
 def _print_section(title: str, rows: Iterable[Mapping]):
     rows = list(rows)
     print(f"\n=== {title} ({len(rows)}) ===")
@@ -30,13 +34,14 @@ def _print_section(title: str, rows: Iterable[Mapping]):
         print(f"- {line}")
 
 
-def _validate_individual_functions(user: str, days_back: int):
-    comments = get_issue_and_pr_comments_by(user, days_back)
-    reviews = get_pr_reviews_by(user, days_back)
-    issue_activity = issue_activities_by(user, days_back)
+def _validate_individual_functions(user: str, from_date: datetime, to_date: datetime):
+
+    comments = get_issue_and_pr_comments_by(user, from_date, to_date)
+    reviews = get_pr_reviews_by(user, from_date, to_date)
+    issue_activity = issue_activities_by(user, from_date, to_date)
     resolution_issues = issue_activity["label"]
     closed_issues = issue_activity["close"]
-    prs = pr_activities_by(user, days_back)
+    prs = pr_activities_by(user, from_date, to_date)
 
     _print_section(
         "Issue / PR Comments",
@@ -66,9 +71,9 @@ def _validate_individual_functions(user: str, days_back: int):
         (
             {
                 "number": issue.get("number"),
-                "title": issue.get("title"),
-                "label": issue.get("label"),
                 "labeledAt": issue.get("labeledAt"),
+                "label": issue.get("label"),
+                "title": issue.get("title"),
                 "url": issue.get("url"),
             }
             for issue in resolution_issues
@@ -79,8 +84,8 @@ def _validate_individual_functions(user: str, days_back: int):
         (
             {
                 "number": issue.get("number"),
-                "title": issue.get("title"),
                 "closedAt": issue.get("closedAt"),
+                "title": issue.get("title"),
                 "url": issue.get("url"),
             }
             for issue in closed_issues
@@ -91,9 +96,9 @@ def _validate_individual_functions(user: str, days_back: int):
         (
             {
                 "number": pr.get("number"),
-                "title": pr.get("title"),
-                "action": pr.get("action"),
                 "occurredAt": pr.get("occurredAt"),
+                "action": pr.get("action"),
+                "title": pr.get("title"),
                 "url": pr.get("url"),
             }
             for pr in prs
@@ -101,13 +106,13 @@ def _validate_individual_functions(user: str, days_back: int):
     )
 
 
-def _validate_contributions_by(user: str, days_back: int):
+def _validate_contributions_by(user: str, from_date: datetime, to_date: datetime):
     # === Filtered contributions for comparison ===
     print("\n" + "="*80)
     print("FILTERED CONTRIBUTIONS (using contributions_by)")
     print("="*80)
-
-    contributions = contributions_by(user, days_back)
+    
+    contributions = contributions_by(user, from_date, to_date)
 
     _print_section(
         "[FILTERED] Issue / PR Comments",
@@ -186,13 +191,13 @@ def _validate_contributions_by(user: str, days_back: int):
     )
 
 
-def _validate_get_team_issue_engagement(days_back: int):
+def _validate_get_team_issue_engagement(from_date: datetime, to_date: datetime, debug: bool=False):
     # === Validate get_team_issue_engagement ===
     print("\n" + "="*80)
     print("VALIDATE get_team_issue_engagement")
     print("="*80)
     
-    issue_engagement = get_team_issue_engagement(days_back=days_back)
+    issue_engagement = get_team_issue_engagement(from_date, to_date, debug=debug)
     print(f"\nTotal Issues: {issue_engagement['total_issues']}")
     print(f"Team Engaged: {issue_engagement['team_engaged']}")
     print(f"Team Unattended: {issue_engagement['team_unattended']}")
@@ -222,13 +227,13 @@ def _validate_get_team_issue_engagement(days_back: int):
         print(f"  #{issue['number']}: {title} - Closed by PR #{issue.get('pr_number', 'N/A')}")
 
 
-def _validate_get_team_pr_engagement(days_back: int):
+def _validate_get_team_pr_engagement(from_date: datetime, to_date: datetime, debug: bool=False):
     # === Validate get_team_pr_engagement ===
     print("\n" + "="*80)
     print("VALIDATE get_team_pr_engagement")
     print("="*80)
     
-    pr_engagement = get_team_pr_engagement(days_back=days_back)
+    pr_engagement = get_team_pr_engagement(from_date, to_date, debug=debug)
     print(f"\nTotal PRs: {pr_engagement['total_prs']}")
     print(f"Team Engaged: {pr_engagement['team_engaged']}")
     print(f"Team Unattended: {pr_engagement['team_unattended']}")
@@ -258,13 +263,13 @@ def _validate_get_team_pr_engagement(days_back: int):
         print(f"  #{pr['number']}: {title} - {pr['url']}")
 
 
-def _valdiate_get_team_engagement(days_back: int):
+def _valdiate_get_team_engagement(from_date: datetime, to_date: datetime, debug: bool=False):
     # === Team Engagement ===
     print("\n" + "="*80)
     print("TEAM ENGAGEMENT")
     print("="*80)
     
-    engagement = get_team_engagement(days_back=days_back)
+    engagement = get_team_engagement(from_date, to_date, debug=debug)
     
     # Print Issue Engagement
     issue_data = engagement["issue"]
@@ -292,11 +297,14 @@ def _valdiate_get_team_engagement(days_back: int):
 def main(user: str = DEFAULT_USER, days_back: int = DEFAULT_DAYS_BACK):
     print(f"Collecting GitHub activity for {user} over the past {days_back} days...")
 
-    # _validate_individual_functions(user, days_back)
-    # _validate_contributions_by(user, days_back)
-    # _validate_get_team_issue_engagement(days_back)
-    # _validate_get_team_pr_engagement(days_back)
-    _valdiate_get_team_engagement(days_back)
+    to_date = datetime.utcnow()
+    from_date = to_date - timedelta(days_back)
+
+    # _validate_individual_functions(user, from_date, to_date)
+    _validate_contributions_by(user, from_date, to_date)
+    # _validate_get_team_issue_engagement(from_date, to_date, debug=True)
+    # _validate_get_team_pr_engagement(from_date, to_date, debug=True)
+    # _valdiate_get_team_engagement(from_date, to_date, debug=True)
 
 
 if __name__ == "__main__":
