@@ -20,6 +20,13 @@ PS_CONTRIBUTORS: set[str] = {"iSazonov", "jborean93", "MartinGC94", "mklement0",
 
 
 # --- GraphQL documents -----------------------------------------------------
+# Query to fetch issue and PR comments made by a specific user.
+# Uses backward pagination (last/before) to retrieve comments in reverse chronological order.
+# Returns comment metadata including the associated issue/PR details and repository information.
+#
+# The default order for 'issueComments' in the GitHub GraphQL API is typically sorted by creation
+# time in ascending order (oldest comments first). So, I use `last` and `before` to get the most
+# recent records first.
 ISSUE_COMMENT_QUERY_PAGINATED = """
 query($username: String!, $count: Int = 100, $before: String) {
   user(login: $username) {
@@ -51,14 +58,22 @@ query($username: String!, $count: Int = 100, $before: String) {
 }
 """
 
+# Query to fetch PR review contributions made by a specific user within a date range.
+# Retrieves reviews from the user's contributions collection with forward pagination (first/after).
+# Uses server-side date filtering via contributionsCollection(from, to) for efficient querying.
+# Returns review metadata including PR details, review state, and repository information.
+#
+# The pullRequestReviewContributions field is a connection that orders contributions by default in
+# descending chronological order (most recent contributions first). So, I use `first` and `after` to
+# get the most recent records first.
 PR_REVIEW_QUERY_PAGINATED = """
-query($username: String!, $count: Int = 100, $after: String) {
+query($username: String!, $fromDate: DateTime!, $toDate: DateTime!, $count: Int = 100, $after: String) {
   user(login: $username) {
-    contributionsCollection {
+    contributionsCollection(from: $fromDate, to: $toDate) {
       pullRequestReviewContributions(first: $count, after: $after) {
         pageInfo {
-          hasPreviousPage
-          startCursor
+          hasNextPage
+          endCursor
         }
         nodes {
           occurredAt
@@ -85,31 +100,18 @@ query($username: String!, $count: Int = 100, $after: String) {
 }
 """
 
-REPO_ACTIVITY_QUERY = """
-query(
-  $owner: String!,
-  $repo: String!,
-  $since: DateTime!,
-  $issuesPageSize: Int = 50,
-  $issuesCursor: String,
-  $prsPageSize: Int = 50,
-  $prsCursor: String,
-  $includeIssues: Boolean! = true,
-  $includePRs: Boolean! = true
-) {
-  repository(owner: $owner, name: $repo) {
-    issues(
-      first: $issuesPageSize,
-      after: $issuesCursor,
-      states: [OPEN, CLOSED],
-      orderBy: {field: UPDATED_AT, direction: DESC},
-      filterBy: {since: $since}
-    ) @include(if: $includeIssues) {
-      pageInfo {
-        hasNextPage
-        endCursor
-      }
-      nodes {
+# Query to search for issues in a repository within a date range using the GitHub search API.
+# Uses search query syntax for server-side date range filtering (updated:FROM..TO).
+# Returns issue details including timeline events for label and close actions.
+ISSUE_ACTIVITY_QUERY = """
+query($searchQuery: String!, $pageSize: Int = 100, $cursor: String) {
+  search(query: $searchQuery, type: ISSUE, first: $pageSize, after: $cursor) {
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+    nodes {
+      ... on Issue {
         number
         title
         url
@@ -141,17 +143,22 @@ query(
         }
       }
     }
-    pullRequests(
-      first: $prsPageSize,
-      after: $prsCursor,
-      orderBy: {field: UPDATED_AT, direction: DESC},
-      states: [OPEN, CLOSED, MERGED]
-    ) @include(if: $includePRs) {
-      pageInfo {
-        hasNextPage
-        endCursor
-      }
-      nodes {
+  }
+}
+"""
+
+# Query to search for pull requests in a repository within a date range using the GitHub search API.
+# Uses search query syntax for server-side date range filtering (updated:FROM..TO).
+# Returns PR details including timeline events for close and merge actions.
+PR_ACTIVITY_QUERY = """
+query($searchQuery: String!, $pageSize: Int = 100, $cursor: String) {
+  search(query: $searchQuery, type: ISSUE, first: $pageSize, after: $cursor) {
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+    nodes {
+      ... on PullRequest {
         number
         title
         url
@@ -180,33 +187,26 @@ query(
 }
 """
 
+# Query to search for issues in a repository created within a date range for team engagement analysis.
+# Uses GitHub search API with server-side date range filtering (created:FROM..TO).
+# Returns issue details including comments and timeline events (labels, closes) needed for team engagement metrics.
 TEAM_ISSUES_ENGAGEMENT_QUERY = """
-query(
-  $owner: String!,
-  $repo: String!,
-  $since: DateTime!,
-  $cursor: String,
-  $pageSize: Int = 100
-) {
-  repository(owner: $owner, name: $repo) {
-    issues(
-      first: $pageSize,
-      after: $cursor,
-      states: [OPEN, CLOSED],
-      filterBy: {since: $since},
-      orderBy: {field: CREATED_AT, direction: DESC}
-    ) {
-      pageInfo {
-        hasNextPage
-        endCursor
-      }
-      nodes {
+query($searchQuery: String!, $pageSize: Int = 100, $cursor: String) {
+  search(query: $searchQuery, type: ISSUE, first: $pageSize, after: $cursor) {
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+    nodes {
+      ... on Issue {
         number
         title
         url
         createdAt
         state
-        author { login }
+        author {
+          login
+        }
         
         comments(first: 100) {
           nodes {
@@ -242,30 +242,26 @@ query(
 }
 """
 
+
+# Query to search for PRs in a repository created within a date range for team engagement analysis.
+# Uses GitHub search API with server-side date range filtering (created:FROM..TO).
+# Returns PR details including comments, reviews, and timeline events (merged, closed) needed for team engagement metrics.
 TEAM_PRS_ENGAGEMENT_QUERY = """
-query(
-  $owner: String!,
-  $repo: String!,
-  $cursor: String,
-  $pageSize: Int = 100
-) {
-  repository(owner: $owner, name: $repo) {
-    pullRequests(
-      first: $pageSize,
-      after: $cursor,
-      states: [OPEN, CLOSED, MERGED],
-      orderBy: {field: CREATED_AT, direction: DESC}
-    ) {
-      pageInfo {
-        hasNextPage
-        endCursor
-      }
-      nodes {
+query($searchQuery: String!, $pageSize: Int = 100, $cursor: String) {
+  search(query: $searchQuery, type: ISSUE, first: $pageSize, after: $cursor) {
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+    nodes {
+      ... on PullRequest {
         number
         title
         url
         createdAt
-        author { login }
+        author {
+          login
+        }
         state
         
         comments(first: 100) {
@@ -443,15 +439,34 @@ def _check_pr_engagement(pr: Dict, team_members: set[str], debug: bool = False) 
 # --- Issue comment queries --------------------------------------------------
 def get_issue_and_pr_comments_by(
     actor_login: str,
-    days_back: int = DEFAULT_DAYS_BACK,
+    from_date: datetime,
+    to_date: datetime,
     owner: str = TARGET_OWNER,
     repo: str = TARGET_REPO,
 ) -> List[Dict]:
-    """Fetch recent issue comments for `actor_login` limited by a time window."""
+    """Fetch issue and PR comments by `actor_login` within a date range.
+    
+    Args:
+        actor_login: GitHub username to fetch comments for
+        from_date: Start of date range (inclusive) - required
+        to_date: End of date range (inclusive) - required
+        owner: Repository owner
+        repo: Repository name
+        
+    Returns:
+        List of comment dictionaries within the specified date range
+        
+    Example:
+        from datetime import datetime, timedelta
+        from_dt = datetime.utcnow() - timedelta(days=30)
+        to_dt = datetime.utcnow()
+        comments = get_issue_and_pr_comments_by("username", from_dt, to_dt)
+    """
     collected: List[Dict] = []
     cursor: Optional[str] = None
     repo_full = f"{owner}/{repo}"
-    since_dt = _since_datetime(days_back)
+    actor = actor_login.lower()
+
     while True:
         variables = {
             "username": actor_login,
@@ -466,15 +481,40 @@ def get_issue_and_pr_comments_by(
         nodes = conn.get("nodes") or []
         stop_paging = False
         for comment in nodes:
-            if comment.get("issue", {}).get("repository", {}).get("nameWithOwner") != repo_full:
+            # Ignore comments in other repos.
+            issue = comment.get("issue", {})
+            if issue.get("repository", {}).get("nameWithOwner") != repo_full:
                 continue
+            
             published_at = comment.get("publishedAt")
-            if not published_at or _parse_date(published_at) < since_dt:
+            if not published_at:
+                continue
+            
+            comment_dt = _parse_date(published_at)
+            
+            # Check if before start date - stop pagination
+            if comment_dt < from_date:
                 stop_paging = True
                 continue
+            
+            # Check if after end date - skip but continue pagination
+            if comment_dt > to_date:
+                continue
+            
+            pr = comment.get("pullRequest")
+            if pr:
+                # This is a PR comment - check if user is the PR author.
+                # We need to check the issue field for author info.
+                issue_author = (issue.get("author") or {}).get("login")
+                # Skip comment on user's own PR.
+                if issue_author and issue_author.lower() == actor:
+                    continue
+            
             collected.append(comment)
+        
         if stop_paging:
             break
+        
         page_info = conn.get("pageInfo") or {}
         if not page_info.get("hasPreviousPage"):
             break
@@ -484,142 +524,222 @@ def get_issue_and_pr_comments_by(
 
 # --- PR review queries ------------------------------------------------------
 def get_pr_reviews_by(
-  actor_login: str,
-  days_back: int = DEFAULT_DAYS_BACK,
-  owner: str = TARGET_OWNER,
-  repo: str = TARGET_REPO,
+    actor_login: str,
+    from_date: datetime,
+    to_date: datetime,
+    owner: str = TARGET_OWNER,
+    repo: str = TARGET_REPO,
 ) -> List[Dict]:
-  """Fetch PR reviews performed by `actor_login` within the requested window."""
-  collected: List[Dict] = []
-  cursor: Optional[str] = None
-  repo_full = f"{owner}/{repo}"
-  since_dt = _since_datetime(days_back)
-  while True:
-    variables = {
-      "username": actor_login,
-      "count": 100,
-      "after": cursor,
-    }
-    data = _graphql_request(PR_REVIEW_QUERY_PAGINATED, variables)
-    user = data.get("user")
-    if not user:
-      break
-    contributions = user.get("contributionsCollection") or {}
-    conn = contributions.get("pullRequestReviewContributions")
-    if not conn:
-      break
-    nodes = conn.get("nodes") or []
-    stop_paging = False
-    for review in nodes:
-      if review.get("repository", {}).get("nameWithOwner") != repo_full:
-        continue
-      occurred_at = review.get("occurredAt")
-      if not occurred_at or _parse_date(occurred_at) < since_dt:
-        stop_paging = True
-        continue
-      collected.append(review)
-    if stop_paging:
-      break
-    page_info = conn.get("pageInfo") or {}
-    if not page_info.get("hasPreviousPage"):
-      break
-    cursor = page_info.get("startCursor")
-  return collected
+    """Fetch PR reviews by `actor_login` within a date range.
+    
+    Args:
+        actor_login: GitHub username to fetch reviews for
+        from_date: Start of date range (inclusive) - required
+        to_date: End of date range (inclusive) - required
+        owner: Repository owner
+        repo: Repository name
+        
+    Returns:
+        List of review dictionaries within the specified date range
+        
+    Note:
+        Uses server-side date filtering for efficient querying.
+    """
+    collected: List[Dict] = []
+    cursor: Optional[str] = None
+    repo_full = f"{owner}/{repo}"
+    actor = actor_login.lower()
+    
+    # Convert datetime to ISO format for GraphQL
+    from_iso = from_date.strftime("%Y-%m-%dT%H:%M:%SZ")
+    to_iso = to_date.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    while True:
+        variables = {
+            "username": actor_login,
+            "fromDate": from_iso,
+            "toDate": to_iso,
+            "count": 100,
+            "after": cursor,
+        }
+        data = _graphql_request(PR_REVIEW_QUERY_PAGINATED, variables)
+        user = data.get("user")
+        if not user:
+            break
+        
+        contributions = user.get("contributionsCollection") or {}
+        conn = contributions.get("pullRequestReviewContributions")
+        if not conn:
+            break
+        
+        nodes = conn.get("nodes") or []
+        
+        # Server-side filtering handles date range, only filter by repository
+        for review in nodes:
+            # Skip reviews in other repos.
+            if review.get("repository", {}).get("nameWithOwner") != repo_full:
+                continue
+            
+            pr = review.get("pullRequest") or {}
+            pr_author = (pr.get("author") or {}).get("login")
+            # Skip review on the user's own PR.
+            if pr_author and pr_author.lower() == actor:
+                continue
+            
+            collected.append(review)
+        
+        page_info = conn.get("pageInfo") or {}
+        if not page_info.get("hasNextPage"):
+            break
+        cursor = page_info.get("endCursor")
+    
+    return collected
 
 
 # --- Repository activity helpers -------------------------------------------
-def _fetch_recent_issues(owner: str, repo: str, since_dt: datetime, page_size: int = 50) -> List[Dict]:
+def _fetch_recent_issues(owner: str, repo: str, from_date: datetime, page_size: int = 50) -> List[Dict]:
+    """Fetch issues updated since the specified date using GitHub search API.
+    
+    Args:
+        owner: Repository owner
+        repo: Repository name
+        from_date: Start of date range (inclusive)
+        page_size: Number of results per page
+        
+    Returns:
+        List of issue dictionaries matching the date range
+    """
     cursor: Optional[str] = None
     results: List[Dict] = []
-    iso_since = since_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    
+    # Format dates for GitHub search query
+    from_iso = from_date.strftime("%Y-%m-%dT%H:%M:%SZ")
+    
+    # Construct search query: 'repo:owner/repo type:issue sort:updated-desc updated:>=FROM'
+    # Note: Using only lower bound (>=from_date) because GitHub's updated filter checks the last
+    # update time. An issue could have relevant activity within our date range but been updated
+    # again later. Client-side filtering on timeline events handles the upper bound.
+    # Not specifying state qualifier includes both open and closed issues.
+    # sort:updated-desc ensures results are ordered by UPDATED_AT in descending order.
+    search_query = f"repo:{owner}/{repo} type:issue sort:updated-desc updated:>={from_iso}"
+    
     while True:
         variables = {
-            "owner": owner,
-            "repo": repo,
-            "since": iso_since,
-            "issuesPageSize": page_size,
-            "issuesCursor": cursor,
-            "includeIssues": True,
-            "includePRs": False,
+            "searchQuery": search_query,
+            "pageSize": page_size,
+            "cursor": cursor,
         }
-        data = _graphql_request(REPO_ACTIVITY_QUERY, variables)
-        repo_data = data.get("repository")
-        conn = repo_data.get("issues") if repo_data else None
-        if not conn:
+        data = _graphql_request(ISSUE_ACTIVITY_QUERY, variables)
+        search_data = data.get("search")
+        if not search_data:
             break
-        for issue in conn.get("nodes", []):
-            if _parse_date(issue["updatedAt"]) < since_dt:
-                return results
-            results.append(issue)
-        page_info = conn.get("pageInfo") or {}
+        
+        nodes = search_data.get("nodes") or []
+        results.extend(nodes)
+        
+        page_info = search_data.get("pageInfo") or {}
         if not page_info.get("hasNextPage"):
             break
         cursor = page_info.get("endCursor")
+    
     return results
 
 
-def _fetch_recent_prs(owner: str, repo: str, since_dt: datetime, page_size: int = 50) -> List[Dict]:
+def _fetch_recent_prs(owner: str, repo: str, from_date: datetime, page_size: int = 50) -> List[Dict]:
+    """Fetch pull requests updated within a date range using GitHub search API.
+    
+    Args:
+        owner: Repository owner
+        repo: Repository name
+        from_date: Start of date range (inclusive)
+        page_size: Number of results per page
+        
+    Returns:
+        List of PR dictionaries matching the date range
+    """
     cursor: Optional[str] = None
     results: List[Dict] = []
-    iso_since = since_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    
+    # Format dates for GitHub search query
+    from_iso = from_date.strftime("%Y-%m-%dT%H:%M:%SZ")
+    
+    # Construct search query: repo:owner/repo type:pr sort:updated-desc updated:>=FROM
+    # Note: Using only lower bound (>=from_date) because GitHub's updated filter checks the last
+    # update time. A PR could have relevant activity within our date range but been updated
+    # again later. Client-side filtering on timeline events handles the upper bound.
+    # Not specifying state qualifier includes all states (open, closed, merged).
+    # sort:updated-desc ensures results are ordered by UPDATED_AT in descending order
+    search_query = f"repo:{owner}/{repo} type:pr sort:updated-desc updated:>={from_iso}"
+    
     while True:
         variables = {
-            "owner": owner,
-            "repo": repo,
-            "since": iso_since,
-            "prsPageSize": page_size,
-            "prsCursor": cursor,
-            "includeIssues": False,
-            "includePRs": True,
+            "searchQuery": search_query,
+            "pageSize": page_size,
+            "cursor": cursor,
         }
-        data = _graphql_request(REPO_ACTIVITY_QUERY, variables)
-        repo_data = data.get("repository")
-        conn = repo_data.get("pullRequests") if repo_data else None
-        if not conn:
+        data = _graphql_request(PR_ACTIVITY_QUERY, variables)
+        search_data = data.get("search")
+        if not search_data:
             break
-        for pr in conn.get("nodes", []):
-            if _parse_date(pr["updatedAt"]) < since_dt:
-                return results
-            results.append(pr)
-        page_info = conn.get("pageInfo") or {}
+        
+        nodes = search_data.get("nodes") or []
+        results.extend(nodes)
+        
+        page_info = search_data.get("pageInfo") or {}
         if not page_info.get("hasNextPage"):
             break
         cursor = page_info.get("endCursor")
+    
     return results
 
 
 def issue_activities_by(
     actor_login: str,
-    days_back: int = DEFAULT_DAYS_BACK,
+    from_date: datetime,
+    to_date: datetime,
     owner: str = TARGET_OWNER,
     repo: str = TARGET_REPO,
 ) -> Dict[str, List[Dict]]:
-    """Fetch issues opened, labeled Resolution-*/WG-*, and closed by `actor_login` in a single pass.
+    """Fetch issues opened, labeled Resolution-*/WG-*, and closed by `actor_login` within a date range.
+    
+    Args:
+        actor_login: GitHub username to fetch activities for
+        from_date: Start of date range (inclusive) - required
+        to_date: End of date range (inclusive) - required
+        owner: Repository owner
+        repo: Repository name
 
-    Returns a dict with keys 'open', 'label', and 'close', each containing a list of matching issues.
-    Note: Label and close events are not collected for issues opened by the same user.
+    Returns:
+        Dict with keys 'open', 'label', and 'close', each containing a list of matching issues.
+        Note: Label and close events are not collected for issues opened by the same user.
     """
-    since_dt = _since_datetime(days_back)
     actor = actor_login.lower()
     opened_matches: List[Dict] = []
     labeled_matches: List[Dict] = []
     closed_matches: List[Dict] = []
 
-    for issue in _fetch_recent_issues(owner, repo, since_dt):
+    for issue in _fetch_recent_issues(owner, repo, from_date):
+        issue_created_at = issue.get("createdAt")
+        if not issue_created_at:
+          continue
+
+        # If the issue was opened after the upper bound, ignore it.
+        issue_created_dt = _parse_date(issue_created_at)
+        if issue_created_dt > to_date:
+            continue
+
         # Check if user is the author of the issue
         issue_author = (issue.get("author") or {}).get("login")
-        if issue_author and issue_author.lower() == actor:
+        if issue_author and issue_author.lower() == actor and issue_created_dt >= from_date:
             # If user opened the issue, add to opened_matches
-            created_at = issue.get("createdAt")
-            if created_at and _parse_date(created_at) >= since_dt:
-                opened_matches.append(
-                    {
-                        "number": issue["number"],
-                        "title": issue["title"],
-                        "url": issue["url"],
-                        "createdAt": created_at,
-                    }
-                )
+            opened_matches.append(
+                {
+                    "number": issue["number"],
+                    "title": issue["title"],
+                    "url": issue["url"],
+                    "createdAt": issue_created_at,
+                }
+            )
             # Continue to collect label/close events for issues opened by the user
 
         # Check for label/close events
@@ -637,17 +757,19 @@ def issue_activities_by(
                 if (label.startswith("Resolution-") or label.startswith("WG-")) and event_actor:
                     if event_actor.lower() == actor:
                         created_at = event.get("createdAt")
-                        if created_at and _parse_date(created_at) >= since_dt:
-                            labeled_matches.append(
-                                {
-                                    "number": issue["number"],
-                                    "title": issue["title"],
-                                    "url": issue["url"],
-                                    "label": label,
-                                    "labeledAt": created_at,
-                                }
-                            )
-                            labeled_found = True
+                        if created_at:
+                            created_dt = _parse_date(created_at)
+                            if from_date <= created_dt <= to_date:
+                                labeled_matches.append(
+                                    {
+                                        "number": issue["number"],
+                                        "title": issue["title"],
+                                        "url": issue["url"],
+                                        "label": label,
+                                        "labeledAt": created_at,
+                                    }
+                                )
+                                labeled_found = True
 
             # Check for closure (exclude PR-triggered closes)
             elif typename == "ClosedEvent" and not closed_found:
@@ -659,16 +781,18 @@ def issue_activities_by(
                         continue
                     
                     created_at = event.get("createdAt")
-                    if created_at and _parse_date(created_at) >= since_dt:
-                        closed_matches.append(
-                            {
-                                "number": issue["number"],
-                                "title": issue["title"],
-                                "url": issue["url"],
-                                "closedAt": created_at,
-                            }
-                        )
-                        closed_found = True
+                    if created_at:
+                        created_dt = _parse_date(created_at)
+                        if from_date <= created_dt <= to_date:
+                            closed_matches.append(
+                                {
+                                    "number": issue["number"],
+                                    "title": issue["title"],
+                                    "url": issue["url"],
+                                    "closedAt": created_at,
+                                }
+                            )
+                            closed_found = True
 
             # Early exit if both found
             if labeled_found and closed_found:
@@ -680,32 +804,57 @@ def issue_activities_by(
         "close": closed_matches,
     }
 
+
 def pr_activities_by(
     actor_login: str,
-    days_back: int = DEFAULT_DAYS_BACK,
+    from_date: datetime,
+    to_date: datetime,
     owner: str = TARGET_OWNER,
     repo: str = TARGET_REPO,
 ) -> List[Dict]:
-    since_dt = _since_datetime(days_back)
+    """Fetch PRs opened, closed, and merged by `actor_login` within a date range.
+    
+    Args:
+        actor_login: GitHub username to fetch activities for
+        from_date: Start of date range (inclusive) - required
+        to_date: End of date range (inclusive) - required
+        owner: Repository owner
+        repo: Repository name
+        
+    Returns:
+        List of PR activity dictionaries with action type and occurrence timestamp
+        
+    Example:
+        from datetime import datetime, timedelta
+        from_dt = datetime.utcnow() - timedelta(days=30)
+        to_dt = datetime.utcnow()
+        activities = pr_activities_by("username", from_dt, to_dt)
+    """
     actor = actor_login.lower()
     matches: List[Dict] = []
-    for pr in _fetch_recent_prs(owner, repo, since_dt):
+    for pr in _fetch_recent_prs(owner, repo, from_date):
+        pr_created_at = pr.get("createdAt")
+        if not pr_created_at:
+            continue
+        
+        # If the PR was opened after the upper bound, ignore it.
+        pr_created_dt = _parse_date(pr_created_at)
+        if pr_created_dt > to_date:
+            continue
+
         # Check if user is the author of the PR
         pr_author = (pr.get("author") or {}).get("login")
-        if pr_author and pr_author.lower() == actor:
-            # Use createdAt for when the PR was opened
-            created_at = pr.get("createdAt")
-            if created_at and _parse_date(created_at) >= since_dt:
-                matches.append(
-                    {
-                        "number": pr["number"],
-                        "title": pr["title"],
-                        "url": pr["url"],
-                        "action": "opened",
-                        "state": pr["state"],
-                        "occurredAt": created_at,
-                    }
-                )
+        if pr_author and pr_author.lower() == actor and pr_created_dt >= from_date:
+            matches.append(
+                {
+                    "number": pr["number"],
+                    "title": pr["title"],
+                    "url": pr["url"],
+                    "action": "opened",
+                    "state": pr["state"],
+                    "occurredAt": pr_created_at,
+                }
+            )
             # Continue to collect the close/merge event for prs opened by the user.
 
         # Check timeline for close/merge actions by the user
@@ -714,80 +863,79 @@ def pr_activities_by(
             typename = event.get("__typename")
             if typename not in {"ClosedEvent", "MergedEvent"}:
                 continue
+            
             event_actor = (event.get("actor") or {}).get("login")
             if not event_actor or event_actor.lower() != actor:
                 continue
-            if _parse_date(event["createdAt"]) < since_dt:
+            
+            created_at = event.get("createdAt")
+            if not created_at:
                 continue
+            
+            created_dt = _parse_date(created_at)
+            if not (from_date <= created_dt <= to_date):
+                continue
+            
             matches.append(
                 {
                     "number": pr["number"],
                     "title": pr["title"],
                     "url": pr["url"],
                     "action": "merged" if typename == "MergedEvent" else "closed",
-                    "occurredAt": event["createdAt"],
+                    "occurredAt": created_at,
                 }
             )
             break
+
     return matches
 
 
 def contributions_by(
     actor_login: str,
-    days_back: int = DEFAULT_DAYS_BACK,
+    from_date: datetime,
+    to_date: datetime,
     owner: str = TARGET_OWNER,
     repo: str = TARGET_REPO,
 ) -> Dict[str, List[Dict]]:
-    """Aggregate all contribution data for a user with filtering rules applied.
+    """Aggregate all contribution data for a user.
+    
+    Args:
+        actor_login: GitHub username to fetch contributions for
+        from_date: Start of date range (inclusive) - required
+        to_date: End of date range (inclusive) - required
+        owner: Repository owner
+        repo: Repository name
 
-    Returns a dict with keys:
-    - 'comments': Issue/PR comments (excluding comments on user's own PRs)
-    - 'reviews': PR reviews (excluding reviews on user's own PRs)
-    - 'issues_opened': Issues opened by the user
-    - 'issues_labeled': Issues labeled Resolution-*/WG-* by the user
-    - 'issues_closed': Issues manually closed by the user (excluding PR-triggered closes)
-    - 'prs_opened': PRs opened by the user
-    - 'prs_merged': PRs merged by the user
-    - 'prs_closed': PRs closed by the user
+    Returns:
+        Dict with keys:
+        - 'comments': Issue/PR comments
+        - 'reviews': PR reviews
+        - 'issues_opened': Issues opened by the user
+        - 'issues_labeled': Issues labeled Resolution-*/WG-* by the user
+        - 'issues_closed': Issues manually closed by the user
+        - 'prs_opened': PRs opened by the user
+        - 'prs_merged': PRs merged by the user
+        - 'prs_closed': PRs closed by the user
+        
+    Example:
+        from datetime import datetime, timedelta
+        from_dt = datetime.utcnow() - timedelta(days=30)
+        to_dt = datetime.utcnow()
+        data = contributions_by("username", from_dt, to_dt)
     """
-    actor = actor_login.lower()
-
     # Collect all raw data in parallel for better performance
     with ThreadPoolExecutor(max_workers=4) as executor:
         # Submit all independent data collection tasks
-        future_comments = executor.submit(get_issue_and_pr_comments_by, actor_login, days_back, owner, repo)
-        future_reviews = executor.submit(get_pr_reviews_by, actor_login, days_back, owner, repo)
-        future_issue_activities = executor.submit(issue_activities_by, actor_login, days_back, owner, repo)
-        future_pr_activities = executor.submit(pr_activities_by, actor_login, days_back, owner, repo)
+        future_comments = executor.submit(get_issue_and_pr_comments_by, actor_login, from_date, to_date, owner, repo)
+        future_reviews = executor.submit(get_pr_reviews_by, actor_login, from_date, to_date, owner, repo)
+        future_issue_activities = executor.submit(issue_activities_by, actor_login, from_date, to_date, owner, repo)
+        future_pr_activities = executor.submit(pr_activities_by, actor_login, from_date, to_date, owner, repo)
 
         # Wait for all results to complete
         comments = future_comments.result()
         reviews = future_reviews.result()
         issue_activities = future_issue_activities.result()
         pr_activities = future_pr_activities.result()
-
-    # Filter PR comments: exclude comments on user's own PRs
-    filtered_comments = []
-    for comment in comments:
-        pr = comment.get("pullRequest")
-        if pr:
-            # This is a PR comment - check if user is the PR author
-            # We need to check the issue field for author info
-            issue = comment.get("issue")
-            if issue:
-                issue_author = (issue.get("author") or {}).get("login")
-                if issue_author and issue_author.lower() == actor:
-                    continue  # Skip comment on user's own PR
-        filtered_comments.append(comment)
-
-    # Filter PR reviews: exclude reviews on user's own PRs
-    filtered_reviews = []
-    for review in reviews:
-        pr = review.get("pullRequest") or {}
-        pr_author = (pr.get("author") or {}).get("login")
-        if pr_author and pr_author.lower() == actor:
-            continue  # Skip review on user's own PR
-        filtered_reviews.append(review)
 
     # Separate PR activities by action type
     prs_opened = []
@@ -804,8 +952,8 @@ def contributions_by(
             prs_closed.append(pr_activity)
 
     return {
-        "comments": filtered_comments,
-        "reviews": filtered_reviews,
+        "comments": comments,
+        "reviews": reviews,
         "issues_opened": issue_activities.get("open", []),
         "issues_labeled": issue_activities.get("label", []),
         "issues_closed": issue_activities.get("close", []),
@@ -817,18 +965,20 @@ def contributions_by(
 
 # --- Team engagement functions ---------------------------------------------
 def get_team_issue_engagement(
+    from_date: datetime,
+    to_date: datetime,
     team_members: set[str] = PS_TEAM_MEMBERS,
-    days_back: int = DEFAULT_DAYS_BACK,
     owner: str = TARGET_OWNER,
     repo: str = TARGET_REPO,
     debug: bool = False,
 ) -> Dict[str, Any]:
     """
-    Calculate team engagement ratio for issues opened in the past N days.
+    Calculate team engagement ratio for issues created within a date range.
     
     Args:
         team_members: Set of GitHub usernames for team members
-        days_back: Number of days to look back
+        from_date: Start of date range (inclusive) - required
+        to_date: End of date range (inclusive) - required
         owner: Repository owner
         repo: Repository name
         debug: If True, print debugging messages about engagement found
@@ -847,33 +997,33 @@ def get_team_issue_engagement(
         - manually_closed_issues: List of manually closed issue details
         - pr_triggered_closed_issues: List of PR-triggered closed issue details
     """
-    since_dt = _since_datetime(days_back)
-    iso_since = since_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-    
     all_issues = []
     cursor = None
+
+    # Format dates for GitHub search query
+    from_iso = from_date.strftime("%Y-%m-%dT%H:%M:%SZ")
+    to_iso = to_date.strftime("%Y-%m-%dT%H:%M:%SZ")
     
-    # Fetch all issues created in timeframe
+    # Construct search query: includes both open and closed issues, ordered by created DESC
+    # created:FROM..TO filters by creation date range
+    search_query = f"repo:{owner}/{repo} type:issue created:{from_iso}..{to_iso} sort:created-desc"
+    
+    # Fetch all issues created in timeframe using search API
     while True:
         variables = {
-            "owner": owner,
-            "repo": repo,
-            "since": iso_since,
+            "searchQuery": search_query,
+            "pageSize": 100,
             "cursor": cursor,
-            "pageSize": 100
         }
         data = _graphql_request(TEAM_ISSUES_ENGAGEMENT_QUERY, variables)
-        repo_data = data.get("repository", {})
-        issues_conn = repo_data.get("issues", {})
-        nodes = issues_conn.get("nodes", [])
+        search_data = data.get("search")
+        if not search_data:
+            break
         
-        # Filter issues created after since_dt (filterBy might include updated)
-        for issue in nodes:
-            created_at = issue.get("createdAt")
-            if created_at and _parse_date(created_at) >= since_dt:
-                all_issues.append(issue)
+        nodes = search_data.get("nodes") or []
+        all_issues.extend(nodes)
         
-        page_info = issues_conn.get("pageInfo", {})
+        page_info = search_data.get("pageInfo") or {}
         if not page_info.get("hasNextPage"):
             break
         cursor = page_info.get("endCursor")
@@ -959,18 +1109,20 @@ def get_team_issue_engagement(
 
 
 def get_team_pr_engagement(
+    from_date: datetime,
+    to_date: datetime,
     team_members: set[str] = PS_TEAM_MEMBERS,
-    days_back: int = DEFAULT_DAYS_BACK,
     owner: str = TARGET_OWNER,
     repo: str = TARGET_REPO,
     debug: bool = False,
 ) -> Dict[str, Any]:
     """
-    Calculate team engagement ratio for PRs opened in the past N days.
+    Calculate team engagement ratio for PRs created within a date range.
     
     Args:
         team_members: Set of GitHub usernames for team members
-        days_back: Number of days to look back
+        from_date: Start of date range (inclusive) - required
+        to_date: End of date range (inclusive) - required
         owner: Repository owner
         repo: Repository name
         debug: If True, print debugging messages about engagement found
@@ -988,39 +1140,33 @@ def get_team_pr_engagement(
         - merged_prs: List of merged PR details
         - closed_prs: List of closed PR details
     """
-    since_dt = _since_datetime(days_back)
+    # Format dates for GitHub search query
+    from_iso = from_date.strftime("%Y-%m-%dT%H:%M:%SZ")
+    to_iso = to_date.strftime("%Y-%m-%dT%H:%M:%SZ")
+    
+    # Construct search query: includes open, closed, and merged PRs, ordered by created DESC
+    # created:FROM..TO filters by creation date range
+    search_query = f"repo:{owner}/{repo} type:pr created:{from_iso}..{to_iso} sort:created-desc"
     
     all_prs = []
     cursor = None
     
-    # Fetch all PRs created in timeframe
+    # Fetch all PRs created in timeframe using search API
     while True:
         variables = {
-            "owner": owner,
-            "repo": repo,
+            "searchQuery": search_query,
+            "pageSize": 100,
             "cursor": cursor,
-            "pageSize": 100
         }
         data = _graphql_request(TEAM_PRS_ENGAGEMENT_QUERY, variables)
-        repo_data = data.get("repository", {})
-        prs_conn = repo_data.get("pullRequests", {})
-        nodes = prs_conn.get("nodes", [])
-        
-        # Filter PRs created after since_dt
-        stop_paging = False
-        for pr in nodes:
-            created_at = pr.get("createdAt")
-            if created_at and _parse_date(created_at) >= since_dt:
-                all_prs.append(pr)
-            elif created_at:
-                # PRs are ordered by CREATED_AT DESC, so if we hit an old one, stop
-                stop_paging = True
-                break
-        
-        if stop_paging:
+        search_data = data.get("search")
+        if not search_data:
             break
         
-        page_info = prs_conn.get("pageInfo", {})
+        nodes = search_data.get("nodes") or []
+        all_prs.extend(nodes)
+        
+        page_info = search_data.get("pageInfo") or {}
         if not page_info.get("hasNextPage"):
             break
         cursor = page_info.get("endCursor")
@@ -1079,8 +1225,9 @@ def get_team_pr_engagement(
 
 
 def get_team_engagement(
+    from_date: datetime,
+    to_date: datetime,
     team_members: set[str] = PS_TEAM_MEMBERS,
-    days_back: int = DEFAULT_DAYS_BACK,
     owner: str = TARGET_OWNER,
     repo: str = TARGET_REPO,
     debug: bool = False,
@@ -1089,10 +1236,12 @@ def get_team_engagement(
     Calculate team engagement for both issues and PRs in parallel.
     
     Args:
+        from_date: Start of date range (inclusive) - required
+        to_date: End of date range (inclusive) - required
         team_members: Set of GitHub usernames for team members
-        days_back: Number of days to look back
         owner: Repository owner
         repo: Repository name
+        debug: If True, print debugging messages about engagement found
     
     Returns:
         Dictionary with:
@@ -1100,8 +1249,8 @@ def get_team_engagement(
         - pr: Results from get_team_pr_engagement
     """
     with ThreadPoolExecutor(max_workers=2) as executor:
-        future_issues = executor.submit(get_team_issue_engagement, team_members, days_back, owner, repo, debug)
-        future_prs = executor.submit(get_team_pr_engagement, team_members, days_back, owner, repo, debug)
+        future_issues = executor.submit(get_team_issue_engagement, from_date, to_date, team_members, owner, repo, debug)
+        future_prs = executor.submit(get_team_pr_engagement, from_date, to_date, team_members, owner, repo, debug)
         
         issue_engagement = future_issues.result()
         pr_engagement = future_prs.result()
