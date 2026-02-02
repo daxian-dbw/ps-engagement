@@ -12,6 +12,8 @@ class Dashboard {
         this.apiClient = new APIClient();
         this.currentUser = null;
         this.currentDays = 7;
+        this.selectionMode = 'quick'; // 'quick' or 'custom'
+        this.customRange = { from: null, to: null }; // ISO date strings
         this.expandedSections = {};
         
         // Cache DOM elements
@@ -50,6 +52,9 @@ class Dashboard {
         // Cache DOM elements
         this.cacheElements();
         
+        // Initialize Flatpickr for date inputs
+        this.initializeDatePickers();
+        
         // Load saved state from localStorage
         this.loadState();
         
@@ -78,6 +83,13 @@ class Dashboard {
         this.elements.errorMessageText = document.getElementById('error-message-text');
         this.elements.dayButtons = document.querySelectorAll('.day-button');
         
+        // Custom date picker elements
+        this.elements.customButton = document.getElementById('custom-button');
+        this.elements.customDatePicker = document.getElementById('custom-date-picker');
+        this.elements.fromDateInput = document.getElementById('from-date');
+        this.elements.toDateInput = document.getElementById('to-date');
+        this.elements.dateRangeError = document.getElementById('date-range-error');
+        
         // Results and summary card elements
         this.elements.resultsContainer = document.getElementById('results-container');
         this.elements.summaryCard = document.getElementById('summary-card');
@@ -86,6 +98,7 @@ class Dashboard {
         this.elements.summaryEmpty = document.getElementById('summary-empty');
         this.elements.totalActions = document.getElementById('total-actions');
         this.elements.summaryDays = document.getElementById('summary-days');
+        this.elements.summaryDateRange = document.getElementById('summary-date-range');
         this.elements.summaryUser = document.getElementById('summary-user');
         this.elements.summaryTimestamp = document.getElementById('summary-timestamp');
         this.elements.countIssuesOpened = document.getElementById('count-issues-opened');
@@ -93,6 +106,42 @@ class Dashboard {
         this.elements.countIssueTriage = document.getElementById('count-issue-triage');
         this.elements.countCodeReviews = document.getElementById('count-code-reviews');
         this.elements.categoriesContainer = document.getElementById('categories-container');
+    }
+
+    /**
+     * Initialize Flatpickr date pickers
+     */
+    initializeDatePickers() {
+        if (typeof flatpickr === 'undefined') {
+            console.warn('Flatpickr not loaded, falling back to native date inputs');
+            return;
+        }
+
+        const today = new Date();
+        // Set maxDate to today (allow selection up to and including today)
+        const maxDate = new Date(today);
+
+        // Initialize From Date picker
+        this.fromDatePicker = flatpickr(this.elements.fromDateInput, {
+            dateFormat: 'Y-m-d',
+            maxDate: maxDate,
+            onChange: () => {
+                this.validateDateRange();
+                this.updateCustomRangeIfValid();
+            }
+        });
+
+        // Initialize To Date picker
+        this.toDatePicker = flatpickr(this.elements.toDateInput, {
+            dateFormat: 'Y-m-d',
+            maxDate: maxDate,
+            onChange: () => {
+                this.validateDateRange();
+                this.updateCustomRangeIfValid();
+            }
+        });
+
+        console.log('Flatpickr date pickers initialized');
     }
 
     /**
@@ -110,9 +159,34 @@ class Dashboard {
         // Day button clicks
         if (this.elements.dayButtons) {
             this.elements.dayButtons.forEach(button => {
+                // Skip the custom button (it has its own handler)
+                if (button.id === 'custom-button') {
+                    return;
+                }
                 button.addEventListener('click', () => {
                     this.handleDayButtonClick(button);
                 });
+            });
+        }
+        
+        // Custom button click
+        if (this.elements.customButton) {
+            this.elements.customButton.addEventListener('click', () => {
+                this.handleCustomButtonClick();
+            });
+        }
+        
+        // Date input validation
+        if (this.elements.fromDateInput) {
+            this.elements.fromDateInput.addEventListener('change', () => {
+                this.validateDateRange();
+                this.updateCustomRangeIfValid();
+            });
+        }
+        if (this.elements.toDateInput) {
+            this.elements.toDateInput.addEventListener('change', () => {
+                this.validateDateRange();
+                this.updateCustomRangeIfValid();
             });
         }
         
@@ -279,21 +353,33 @@ class Dashboard {
 
     /**
      * Handle day button click
+     * @param {HTMLElement} clickedButton - The clicked button element
      */
     handleDayButtonClick(clickedButton) {
-        // Update selected state
-        this.elements.dayButtons.forEach(btn => {
-            btn.classList.remove('selected', 'bg-blue-500', 'text-white');
-            btn.classList.add('border-gray-300');
+        const days = parseInt(clickedButton.dataset.days);
+        
+        // Set quick select mode
+        this.setQuickSelect(days);
+        
+        // Remove 'selected' class from all buttons
+        this.elements.dayButtons.forEach(button => {
+            button.classList.remove('selected', 'bg-blue-500', 'text-white');
+            button.classList.add('border-gray-300');
         });
         
         clickedButton.classList.add('selected', 'bg-blue-500', 'text-white');
         clickedButton.classList.remove('border-gray-300');
         
-        // Update current days
-        this.currentDays = parseInt(clickedButton.dataset.days);
+        // Hide custom picker
+        this.hideCustomDatePicker();
         
-        console.log(`Selected ${this.currentDays} days`);
+        // Deselect custom button
+        if (this.elements.customButton) {
+            this.elements.customButton.classList.remove('selected', 'bg-blue-500', 'text-white');
+            this.elements.customButton.classList.add('border-gray-300');
+        }
+        
+        console.log(`Selected ${days} days`);
     }
 
     /**
@@ -311,8 +397,21 @@ class Dashboard {
         // Clear previous error
         this.clearError();
         
-        // Load data
-        await this.loadData(username, this.currentDays);
+        // Store current user
+        this.currentUser = username;
+        
+        // Get current selection (days or custom range)
+        const params = this.getCurrentSelection();
+        
+        // Load data with appropriate parameters
+        if (params.days) {
+            await this.loadData(username, params.days);
+        } else if (params.from_date && params.to_date) {
+            await this.loadDataWithDateRange(username, params.from_date, params.to_date);
+        }
+        
+        // Save state
+        this.saveState();
     }
 
     /**
@@ -324,6 +423,225 @@ class Dashboard {
             console.log('API Health:', health);
         } catch (error) {
             console.error('API health check failed:', error);
+        }
+    }
+
+    /**
+     * Handle custom button click
+     */
+    handleCustomButtonClick() {
+        // Toggle date picker visibility
+        const isVisible = !this.elements.customDatePicker.classList.contains('hidden');
+        
+        if (isVisible) {
+            this.hideCustomDatePicker();
+        } else {
+            this.showCustomDatePicker();
+        }
+    }
+
+    /**
+     * Show custom date picker
+     */
+    showCustomDatePicker() {
+        // Show date picker
+        this.elements.customDatePicker.classList.remove('hidden');
+        
+        // Set default values to current date range (last 7 days to today)
+        // Always refresh to ensure current dates are shown
+        const today = new Date();
+        const weekAgo = new Date(today);
+        weekAgo.setDate(today.getDate() - 7);
+        
+        this.elements.fromDateInput.value = this.formatDateForInput(weekAgo);
+        this.elements.toDateInput.value = this.formatDateForInput(today);
+        
+        // Mark custom button as selected
+        this.updateCustomButtonSelection();
+        
+        // Deselect day buttons
+        this.elements.dayButtons.forEach(btn => {
+            btn.classList.remove('selected', 'bg-blue-500', 'text-white');
+            btn.classList.add('border-gray-300');
+        });
+        
+        // Clear any previous errors
+        this.hideDateRangeError();
+        
+        // Update custom range state with the default dates
+        this.updateCustomRangeIfValid();
+        
+        console.log('Custom date picker shown');
+    }
+
+    /**
+     * Hide custom date picker
+     */
+    hideCustomDatePicker() {
+        this.elements.customDatePicker.classList.add('hidden');
+        this.hideDateRangeError();
+        console.log('Custom date picker hidden');
+    }
+
+    /**
+     * Handle apply custom range
+     */
+    /**
+     * Update custom range if dates are valid
+     */
+    updateCustomRangeIfValid() {
+        const fromDate = this.elements.fromDateInput.value;
+        const toDate = this.elements.toDateInput.value;
+        
+        // Only update if both dates are valid
+        if (fromDate && toDate && this.validateCustomRange(fromDate, toDate)) {
+            // Set custom range
+            this.setCustomRange(fromDate, toDate);
+            
+            console.log(`Updated custom range: ${fromDate} to ${toDate}`);
+        }
+    }
+
+    /**
+     * Validate custom date range
+     * @param {string} fromDate - From date (YYYY-MM-DD)
+     * @param {string} toDate - To date (YYYY-MM-DD)
+     * @returns {boolean} True if valid
+     */
+    validateCustomRange(fromDate, toDate) {
+        // Check if both dates are provided
+        if (!fromDate || !toDate) {
+            this.showDateRangeError('Please select both from and to dates');
+            return false;
+        }
+        
+        // Parse dates
+        const from = new Date(fromDate);
+        const to = new Date(toDate);
+        const today = new Date();
+        today.setHours(23, 59, 59, 999);
+        
+        // Check if from < to
+        if (from >= to) {
+            this.showDateRangeError('From date must be before to date');
+            return false;
+        }
+        
+        // Check if dates are in the future
+        if (to > today) {
+            this.showDateRangeError('Cannot select future dates');
+            return false;
+        }
+        
+        // Check max range (200 days)
+        const daysDiff = Math.ceil((to - from) / (1000 * 60 * 60 * 24));
+        if (daysDiff > 200) {
+            this.showDateRangeError('Date range cannot exceed 200 days');
+            return false;
+        }
+        
+        this.hideDateRangeError();
+        return true;
+    }
+
+    /**
+     * Validate date range (called on input change)
+     */
+    validateDateRange() {
+        const fromDate = this.elements.fromDateInput.value;
+        const toDate = this.elements.toDateInput.value;
+        
+        // Only validate if both dates are entered
+        if (fromDate && toDate) {
+            this.validateCustomRange(fromDate, toDate);
+        }
+    }
+
+    /**
+     * Show date range error
+     * @param {string} message - Error message
+     */
+    showDateRangeError(message) {
+        this.elements.dateRangeError.textContent = message;
+        this.elements.dateRangeError.classList.remove('hidden');
+    }
+
+    /**
+     * Hide date range error
+     */
+    hideDateRangeError() {
+        this.elements.dateRangeError.classList.add('hidden');
+    }
+
+    /**
+     * Update custom button selection state
+     */
+    updateCustomButtonSelection() {
+        this.elements.customButton.classList.add('selected', 'bg-blue-500', 'text-white');
+        this.elements.customButton.classList.remove('border-gray-300');
+    }
+
+    /**
+     * Format date range for display
+     * @param {string} fromDate - From date (YYYY-MM-DD)
+     * @param {string} toDate - To date (YYYY-MM-DD)
+     * @returns {string} Formatted date range
+     */
+    formatDateRange(fromDate, toDate) {
+        const from = new Date(fromDate);
+        const to = new Date(toDate);
+        
+        const options = { month: 'short', day: 'numeric', year: 'numeric' };
+        return `${from.toLocaleDateString('en-US', options)} - ${to.toLocaleDateString('en-US', options)}`;
+    }
+
+    /**
+     * Format date for input (YYYY-MM-DD)
+     * Uses local timezone to avoid UTC conversion issues
+     * @param {Date} date - Date object
+     * @returns {string} Formatted date string
+     */
+    formatDateForInput(date) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    }
+
+    /**
+     * Load data for a user with date range
+     * @param {string} user - GitHub username
+     * @param {string} fromDate - From date (YYYY-MM-DD)
+     * @param {string} toDate - To date (YYYY-MM-DD)
+     */
+    async loadDataWithDateRange(user, fromDate, toDate) {
+        console.log(`Loading data for ${user} (${fromDate} to ${toDate})...`);
+        
+        try {
+            this.showLoading();
+            this.showSummaryLoading();
+            
+            // Collapse all categories immediately before loading new data
+            this.collapseAllCategories();
+
+            const data = await this.apiClient.fetchMetrics(user, { from_date: fromDate, to_date: toDate });
+            
+            console.log('Data loaded successfully:', data);
+            
+            // Update state
+            this.currentUser = user;
+            this.saveState();
+            
+            // Render data
+            this.updateSummary(data);
+            this.renderCategories(data);
+            
+            this.hideLoading();
+            
+        } catch (error) {
+            console.error('Error loading data:', error);
+            this.hideLoading();
+            this.showError(error.message);
         }
     }
 
@@ -457,9 +775,23 @@ class Dashboard {
             this.elements.totalActions.textContent = totalActions;
         }
         
-        // Update days
+        // Update days and date range
         if (this.elements.summaryDays) {
             this.elements.summaryDays.textContent = data.meta?.period?.days || this.currentDays;
+        }
+        
+        // Update date range display
+        if (this.elements.summaryDateRange) {
+            const startDate = data.meta?.period?.start;
+            const endDate = data.meta?.period?.end;
+            if (startDate && endDate) {
+                // Extract YYYY-MM-DD from ISO datetime strings
+                const from = startDate.split('T')[0];
+                const to = endDate.split('T')[0];
+                this.elements.summaryDateRange.textContent = ` (${from} to ${to})`;
+            } else {
+                this.elements.summaryDateRange.textContent = '';
+            }
         }
         
         // Update user
@@ -870,6 +1202,8 @@ class Dashboard {
             const state = {
                 currentUser: this.currentUser,
                 currentDays: this.currentDays,
+                selectionMode: this.selectionMode,
+                customRange: this.customRange,
                 expandedSections: this.expandedSections
             };
             localStorage.setItem('dashboardState', JSON.stringify(state));
@@ -887,28 +1221,98 @@ class Dashboard {
             const savedState = localStorage.getItem('dashboardState');
             if (savedState) {
                 const state = JSON.parse(savedState);
-                this.currentUser = state.currentUser;
+                this.currentUser = state.currentUser || null;
                 this.currentDays = state.currentDays || 7;
+                this.selectionMode = state.selectionMode || 'quick';
+                this.customRange = state.customRange || { from: null, to: null };
                 this.expandedSections = state.expandedSections || {};
                 
                 // Restore UI state
-                if (this.currentUser && this.elements.usernameInput) {
-                    this.elements.usernameInput.value = this.currentUser;
-                }
-                
-                // Restore selected day button
-                if (this.elements.dayButtons) {
-                    this.elements.dayButtons.forEach(btn => {
-                        if (parseInt(btn.dataset.days) === this.currentDays) {
-                            this.handleDayButtonClick(btn);
-                        }
-                    });
-                }
+                this.restoreUIState();
                 
                 console.log('State loaded from localStorage');
             }
         } catch (error) {
             console.error('Failed to load state:', error);
+        }
+    }
+
+    /**
+     * Restore UI state from loaded state
+     */
+    restoreUIState() {
+        // Restore username
+        if (this.currentUser && this.elements.usernameInput) {
+            this.elements.usernameInput.value = this.currentUser;
+        }
+        
+        // Restore day selection or custom range
+        if (this.selectionMode === 'quick') {
+            this.updateDayButtonSelection(this.currentDays);
+        } else if (this.selectionMode === 'custom' && this.customRange.from && this.customRange.to) {
+            // Will implement custom UI restoration in Task 4
+            console.log('Custom range mode restored:', this.customRange);
+        }
+    }
+
+    /**
+     * Update day button selection
+     * @param {number} days - Number of days to select
+     */
+    updateDayButtonSelection(days) {
+        if (this.elements.dayButtons) {
+            this.elements.dayButtons.forEach(btn => {
+                const btnDays = parseInt(btn.dataset.days, 10);
+                if (btnDays === days) {
+                    btn.classList.add('selected', 'bg-blue-500', 'text-white');
+                    btn.classList.remove('border-gray-300', 'hover:bg-gray-50');
+                } else {
+                    btn.classList.remove('selected', 'bg-blue-500', 'text-white');
+                    btn.classList.add('border-gray-300', 'hover:bg-gray-50');
+                }
+            });
+        }
+    }
+
+    /**
+     * Set quick select mode
+     * @param {number} days - Number of days
+     */
+    setQuickSelect(days) {
+        this.selectionMode = 'quick';
+        this.currentDays = days;
+        this.customRange = { from: null, to: null };
+        this.saveState();
+        console.log(`Set quick select mode: ${days} days`);
+    }
+
+    /**
+     * Set custom range mode
+     * @param {string} fromDate - From date (YYYY-MM-DD)
+     * @param {string} toDate - To date (YYYY-MM-DD)
+     */
+    setCustomRange(fromDate, toDate) {
+        this.selectionMode = 'custom';
+        this.customRange = { from: fromDate, to: toDate };
+        this.currentDays = null;
+        this.saveState();
+        console.log(`Set custom range mode: ${fromDate} to ${toDate}`);
+    }
+
+    /**
+     * Get current selection as API parameters
+     * @returns {Object} Either {days: number} or {from_date: string, to_date: string}
+     */
+    getCurrentSelection() {
+        if (this.selectionMode === 'custom' && this.customRange.from && this.customRange.to) {
+            return {
+                from_date: this.customRange.from,
+                to_date: this.customRange.to
+            };
+        } else {
+            return {
+                days: this.currentDays || 7
+            };
         }
     }
 }

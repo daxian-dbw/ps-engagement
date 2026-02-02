@@ -94,7 +94,8 @@ def get_metrics():
 
     Query Parameters:
         user (str, required): GitHub username
-        days (int, optional): Number of days to look back (1-180, default: 7)
+        from_date (str, required): Start date in YYYY-MM-DD format
+        to_date (str, required): End date in YYYY-MM-DD format
         owner (str, optional): Repository owner (default from config)
         repo (str, optional): Repository name (default from config)
 
@@ -120,7 +121,8 @@ def get_metrics():
     try:
         # Extract query parameters
         user = request.args.get('user', '').strip()
-        days_str = request.args.get('days', '7')
+        from_date_str = request.args.get('from_date', '').strip()
+        to_date_str = request.args.get('to_date', '').strip()
         owner = request.args.get('owner', current_app.config.get('GITHUB_OWNER', 'PowerShell'))
         repo = request.args.get('repo', current_app.config.get('GITHUB_REPO', 'PowerShell'))
 
@@ -135,26 +137,62 @@ def get_metrics():
                 }
             }), 400
 
-        # Validate and parse days parameter
-        try:
-            days = int(days_str)
-        except ValueError:
-            logger.warning(f"Invalid days parameter: {days_str}")
+        # Validate required parameters: from_date and to_date
+        if not from_date_str or not to_date_str:
+            logger.warning(f"Metrics request missing date parameters: from_date={from_date_str}, to_date={to_date_str}")
             return jsonify({
                 'error': {
-                    'code': 'INVALID_PARAMETER',
-                    'message': f'Invalid days parameter: must be an integer',
+                    'code': 'MISSING_PARAMETER',
+                    'message': 'Both from_date and to_date parameters are required',
                     'timestamp': datetime.utcnow().isoformat() + 'Z'
                 }
             }), 400
 
-        # Validate days range
-        if days < 1 or days > 180:
-            logger.warning(f"Days parameter out of range: {days}")
+        # Parse and validate date format
+        try:
+            from_date = datetime.strptime(from_date_str, '%Y-%m-%d')
+            to_date = datetime.strptime(to_date_str, '%Y-%m-%d')
+        except ValueError as e:
+            logger.warning(f"Invalid date format: from_date={from_date_str}, to_date={to_date_str}, error={str(e)}")
             return jsonify({
                 'error': {
-                    'code': 'INVALID_PARAMETER',
-                    'message': 'Days parameter must be between 1 and 180',
+                    'code': 'INVALID_DATE_FORMAT',
+                    'message': 'Dates must be in YYYY-MM-DD format',
+                    'timestamp': datetime.utcnow().isoformat() + 'Z'
+                }
+            }), 400
+
+        # Validate date range: from_date <= to_date
+        if from_date > to_date:
+            logger.warning(f"Invalid date range: from_date={from_date_str} > to_date={to_date_str}")
+            return jsonify({
+                'error': {
+                    'code': 'INVALID_DATE_RANGE',
+                    'message': 'From date must be before or equal to to date',
+                    'timestamp': datetime.utcnow().isoformat() + 'Z'
+                }
+            }), 400
+
+        # Validate dates are not in the future
+        now = datetime.utcnow()
+        if to_date.replace(hour=23, minute=59, second=59) > now:
+            logger.warning(f"Future date not allowed: to_date={to_date_str}")
+            return jsonify({
+                'error': {
+                    'code': 'FUTURE_DATE_NOT_ALLOWED',
+                    'message': 'Cannot select future dates',
+                    'timestamp': datetime.utcnow().isoformat() + 'Z'
+                }
+            }), 400
+
+        # Validate max range (200 days)
+        days_diff = (to_date - from_date).days
+        if days_diff > 200:
+            logger.warning(f"Date range too large: {days_diff} days (max 200)")
+            return jsonify({
+                'error': {
+                    'code': 'DATE_RANGE_TOO_LARGE',
+                    'message': 'Date range cannot exceed 200 days',
                     'timestamp': datetime.utcnow().isoformat() + 'Z'
                 }
             }), 400
@@ -171,13 +209,13 @@ def get_metrics():
             }), 400
 
         # Log the request
-        logger.info(f"Fetching metrics for user={user}, days={days}, repo={owner}/{repo}")
+        logger.info(f"Fetching metrics for user={user}, from_date={from_date_str}, to_date={to_date_str}, repo={owner}/{repo}")
 
         # Call github_events module to get contributions
         try:
-            # Convert days_back to date range
-            to_date = datetime.utcnow()
-            from_date = to_date - timedelta(days=days)
+            # Set time to start and end of day in UTC
+            from_date = from_date.replace(hour=0, minute=0, second=0, microsecond=0)
+            to_date = to_date.replace(hour=23, minute=59, second=59, microsecond=0)
             
             raw_data = github_events.contributions_by(
                 actor_login=user,
@@ -227,7 +265,7 @@ def get_metrics():
                 }), 500
 
         # Format the response
-        formatted_response = format_metrics_response(raw_data, user, days, owner, repo)
+        formatted_response = format_metrics_response(raw_data, user, from_date, to_date, owner, repo)
 
         logger.info(f"Successfully retrieved metrics for {user}: {formatted_response['summary']['total_actions']} total actions")
 

@@ -13,13 +13,32 @@ class APIClient {
     /**
      * Fetch metrics for a GitHub user
      * @param {string} user - GitHub username
-     * @param {number} days - Number of days to look back
+     * @param {Object|number} options - Either {from_date: string, to_date: string} or a number (days)
      * @param {string} owner - Repository owner (optional)
      * @param {string} repo - Repository name (optional)
      * @returns {Promise<Object>} Metrics data
      */
-    async fetchMetrics(user, days = 7, owner = null, repo = null) {
-        const params = new URLSearchParams({ user, days: days.toString() });
+    async fetchMetrics(user, options = 7, owner = null, repo = null) {
+        const params = new URLSearchParams({ user });
+        
+        // Handle both object (date range) and number (days) formats
+        if (typeof options === 'object' && options.from_date && options.to_date) {
+            // Custom date range mode
+            params.append('from_date', options.from_date);
+            params.append('to_date', options.to_date);
+        } else {
+            // Quick select mode - convert days to date range
+            // Use yesterday as the end date to avoid "future date" errors
+            const days = typeof options === 'number' ? options : 7;
+            const to = new Date();
+            to.setDate(to.getDate() - 1); // Yesterday
+            const from = new Date(to);
+            from.setDate(to.getDate() - (days - 1)); // days - 1 because we're already 1 day back
+            
+            params.append('from_date', this._formatDate(from));
+            params.append('to_date', this._formatDate(to));
+        }
+        
         if (owner) params.append('owner', owner);
         if (repo) params.append('repo', repo);
 
@@ -32,6 +51,14 @@ class APIClient {
             console.error('Error fetching metrics:', error);
             throw error;
         }
+    }
+
+    /**
+     * Format date as YYYY-MM-DD
+     * @private
+     */
+    _formatDate(date) {
+        return date.toISOString().split('T')[0];
     }
 
     /**
