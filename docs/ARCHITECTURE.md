@@ -593,7 +593,7 @@ echo "GITHUB_TOKEN=your_token_here" > .env
 
 # Run
 python app.py
-# Opens at http://localhost:5000
+# Opens at http://localhost:5001
 ```
 
 ### Phase 2: Internal Server Deployment
@@ -961,17 +961,17 @@ logging.basicConfig(
 
 ### Get activity for user over 30 days
 ```bash
-curl "http://localhost:5000/api/metrics?user=daxian-dbw&from_date=2026-01-03&to_date=2026-02-02"
+curl "http://localhost:5001/api/metrics?user=daxian-dbw&from_date=2026-01-03&to_date=2026-02-02"
 ```
 
 ### Get activity for different repository
 ```bash
-curl "http://localhost:5000/api/metrics?user=daxian-dbw&from_date=2026-01-26&to_date=2026-02-02&owner=Microsoft&repo=vscode"
+curl "http://localhost:5001/api/metrics?user=daxian-dbw&from_date=2026-01-26&to_date=2026-02-02&owner=Microsoft&repo=vscode"
 ```
 
 ### Get activity for custom date range
 ```bash
-curl "http://localhost:5000/api/metrics?user=daxian-dbw&from_date=2025-12-01&to_date=2026-01-01"
+curl "http://localhost:5001/api/metrics?user=daxian-dbw&from_date=2025-12-01&to_date=2026-01-01"
 ```
 
 ---
