@@ -12,7 +12,8 @@ from typing import Dict, Any, Optional, List
 def format_metrics_response(
     raw_data: Optional[Dict[str, Any]],
     user: str,
-    days: int,
+    from_date: datetime,
+    to_date: datetime,
     owner: str,
     repo: str
 ) -> Dict[str, Any]:
@@ -22,7 +23,8 @@ def format_metrics_response(
     Args:
         raw_data: Raw data from github_events.contributions_by()
         user: GitHub username
-        days: Number of days queried
+        from_date: Start date of the query period
+        to_date: End date of the query period
         owner: Repository owner
         repo: Repository name
     
@@ -39,9 +41,8 @@ def format_metrics_response(
     if raw_data is None:
         raw_data = {}
     
-    # Calculate date range
-    end_date = datetime.utcnow()
-    start_date = end_date.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=days - 1)
+    # Calculate days for display
+    days = (to_date - from_date).days + 1
     
     # Extract and format data
     issues_opened = _format_issues_opened(raw_data.get('issues_opened', []))
@@ -68,8 +69,8 @@ def format_metrics_response(
             'repository': f'{owner}/{repo}',
             'period': {
                 'days': days,
-                'start': start_date.isoformat() + 'Z',
-                'end': end_date.isoformat() + 'Z'
+                'start': from_date.isoformat() + 'Z',
+                'end': to_date.isoformat() + 'Z'
             },
             'fetched_at': datetime.utcnow().isoformat() + 'Z'
         },

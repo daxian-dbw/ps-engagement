@@ -42,6 +42,151 @@ body {
     background-color: #1d4ed8;
 }
 
+/* Custom Date Picker Styles */
+#custom-date-picker input[type="date"] {
+    font-size: 1.125rem;
+    padding: 0.875rem 1rem;
+    min-height: 3.5rem;
+    cursor: pointer;
+}
+
+#custom-date-picker input[type="date"]::-webkit-calendar-picker-indicator {
+    font-size: 1.5rem;
+    padding: 0.5rem;
+    cursor: pointer;
+}
+
+/* Flatpickr Calendar Styling - Make it larger */
+.flatpickr-calendar {
+    width: 100% !important;
+    max-width: 450px !important;
+    font-size: 16px !important;
+}
+
+.flatpickr-months {
+    padding: 10px 0 !important;
+}
+
+.flatpickr-current-month {
+    font-size: 18px !important;
+    padding: 8px 0 !important;
+}
+
+.flatpickr-weekdays {
+    height: 40px !important;
+}
+
+.flatpickr-weekday {
+    font-size: 15px !important;
+    line-height: 40px !important;
+}
+
+.flatpickr-days {
+    width: 100% !important;
+}
+
+.flatpickr-day {
+    max-width: none !important;
+    height: 48px !important;
+    line-height: 48px !important;
+    font-size: 16px !important;
+    flex-basis: 14.2857% !important;
+}
+
+.flatpickr-day.selected {
+    background: #2563eb !important;
+    border-color: #2563eb !important;
+}
+
+.flatpickr-day.today {
+    border-color: #2563eb !important;
+}
+
+.flatpickr-day:hover {
+    background: #e5e7eb !important;
+}
+
+.flatpickr-months .flatpickr-prev-month,
+.flatpickr-months .flatpickr-next-month {
+    padding: 10px !important;
+}
+
+.flatpickr-months .flatpickr-prev-month svg,
+.flatpickr-months .flatpickr-next-month svg {
+    width: 16px !important;
+    height: 16px !important;
+}
+
+/* Custom button styling */
+.custom-button {
+    min-width: 80px;
+}
+
+.custom-button.selected {
+    background-color: #2563eb;
+    color: white;
+    border-color: #2563eb;
+}
+
+.custom-button.selected:hover {
+    background-color: #1d4ed8;
+}
+
+/* Custom date picker container */
+#custom-date-picker {
+    transition: all 0.3s ease-in-out;
+}
+
+/* Date range error message */
+#date-range-error {
+    font-size: 0.875rem;
+    animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Custom range display badge */
+#custom-range-display {
+    animation: slideIn 0.3s ease-in-out;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateX(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* Mobile responsive styles */
+@media (max-width: 640px) {
+    .custom-button {
+        min-width: 100%;
+    }
+    
+    #custom-date-picker {
+        margin-left: -0.5rem;
+        margin-right: -0.5rem;
+    }
+    
+    #custom-date-picker input[type="date"] {
+        font-size: 1rem;
+        min-height: 3rem;
+    }
+}
+
 /* Loading Spinner Animation */
 @keyframes spin {
     0% {

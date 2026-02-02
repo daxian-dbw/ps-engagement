@@ -70,41 +70,43 @@ class TestMetricsEndpoint:
         assert 'error' in data
         assert data['error']['code'] == 'MISSING_PARAMETER'
     
-    def test_metrics_invalid_days_parameter(self, client):
-        """Test metrics endpoint returns 400 when days is not a number."""
-        response = client.get('/api/metrics?user=testuser&days=invalid')
+    def test_metrics_missing_both_date_parameters(self, client):
+        """Test metrics endpoint returns 400 when both date parameters are missing."""
+        response = client.get('/api/metrics?user=testuser')
         assert response.status_code == 400
         
         data = json.loads(response.data)
         assert 'error' in data
-        assert data['error']['code'] == 'INVALID_PARAMETER'
-        assert 'days' in data['error']['message'].lower()
+        assert data['error']['code'] == 'MISSING_PARAMETER'
+        assert 'from_date' in data['error']['message'] or 'to_date' in data['error']['message']
     
-    def test_metrics_days_out_of_range_low(self, client):
-        """Test metrics endpoint returns 400 when days < 1."""
-        response = client.get('/api/metrics?user=testuser&days=0')
+    def test_metrics_missing_from_date(self, client):
+        """Test metrics endpoint returns 400 when from_date is missing."""
+        response = client.get('/api/metrics?user=testuser&to_date=2026-02-02')
         assert response.status_code == 400
         
         data = json.loads(response.data)
         assert 'error' in data
-        assert data['error']['code'] == 'INVALID_PARAMETER'
+        assert data['error']['code'] == 'MISSING_PARAMETER'
     
-    def test_metrics_days_out_of_range_high(self, client):
-        """Test metrics endpoint returns 400 when days > 180."""
-        response = client.get('/api/metrics?user=testuser&days=181')
+    def test_metrics_missing_to_date(self, client):
+        """Test metrics endpoint returns 400 when to_date is missing."""
+        response = client.get('/api/metrics?user=testuser&from_date=2026-01-26')
         assert response.status_code == 400
         
         data = json.loads(response.data)
         assert 'error' in data
-        assert data['error']['code'] == 'INVALID_PARAMETER'
+        assert data['error']['code'] == 'MISSING_PARAMETER'
     
     @patch('api.routes.github_events')
-    def test_metrics_success(self, mock_github, client, mock_github_data):
-        """Test metrics endpoint returns 200 with valid parameters."""
+    def test_metrics_success_with_date_range(self, mock_github, client, mock_github_data, valid_date_range_7_days):
+        """Test metrics endpoint returns 200 with valid date range parameters."""
         # Mock the contributions_by function
         mock_github.contributions_by.return_value = mock_github_data
         
-        response = client.get('/api/metrics?user=testuser&days=7')
+        from_date = valid_date_range_7_days['from_date']
+        to_date = valid_date_range_7_days['to_date']
+        response = client.get(f'/api/metrics?user=testuser&from_date={from_date}&to_date={to_date}')
         assert response.status_code == 200
         
         data = json.loads(response.data)
@@ -115,48 +117,27 @@ class TestMetricsEndpoint:
         # Verify meta section
         assert data['meta']['user'] == 'testuser'
         assert data['meta']['repository'] == 'PowerShell/PowerShell'
-        assert data['meta']['period']['days'] == 7
+        assert 'period' in data['meta']
+        assert 'start' in data['meta']['period']
+        assert 'end' in data['meta']['period']
+        assert 'days' in data['meta']['period']
         
-        # Verify github_events was called correctly
-        mock_github.contributions_by.assert_called_once_with(
-            actor_login='testuser', days_back=7, owner='PowerShell', repo='PowerShell'
-        )
+        # Verify github_events was called with date range
+        assert mock_github.contributions_by.called
+        call_args = mock_github.contributions_by.call_args
+        assert 'from_date' in call_args.kwargs
+        assert 'to_date' in call_args.kwargs
+        assert call_args.kwargs['actor_login'] == 'testuser'
     
     @patch('api.routes.github_events')
-    def test_metrics_default_days_parameter(self, mock_github, client, mock_github_data):
-        """Test metrics endpoint uses default days=7 when not specified."""
-        mock_github.contributions_by.return_value = mock_github_data
-        
-        response = client.get('/api/metrics?user=testuser')
-        assert response.status_code == 200
-        
-        data = json.loads(response.data)
-        assert data['meta']['period']['days'] == 7
-        mock_github.contributions_by.assert_called_once_with(
-            actor_login='testuser', days_back=7, owner='PowerShell', repo='PowerShell'
-        )
-    
-    @patch('api.routes.github_events')
-    def test_metrics_custom_days_parameter(self, mock_github, client, mock_github_data):
-        """Test metrics endpoint respects custom days parameter."""
-        mock_github.contributions_by.return_value = mock_github_data
-        
-        response = client.get('/api/metrics?user=testuser&days=30')
-        assert response.status_code == 200
-        
-        data = json.loads(response.data)
-        assert data['meta']['period']['days'] == 30
-        mock_github.contributions_by.assert_called_once_with(
-            actor_login='testuser', days_back=30, owner='PowerShell', repo='PowerShell'
-        )
-    
-    @patch('api.routes.github_events')
-    def test_metrics_github_api_error(self, mock_github, client):
+    def test_metrics_github_api_error(self, mock_github, client, valid_date_range_7_days):
         """Test metrics endpoint handles GitHub API errors."""
         # Mock GitHub API raising an exception
         mock_github.contributions_by.side_effect = Exception("GitHub API error")
         
-        response = client.get('/api/metrics?user=testuser&days=7')
+        from_date = valid_date_range_7_days['from_date']
+        to_date = valid_date_range_7_days['to_date']
+        response = client.get(f'/api/metrics?user=testuser&from_date={from_date}&to_date={to_date}')
         assert response.status_code == 500
         
         data = json.loads(response.data)
@@ -164,11 +145,13 @@ class TestMetricsEndpoint:
         assert data['error']['code'] == 'GITHUB_API_ERROR'
     
     @patch('api.routes.github_events')
-    def test_metrics_empty_results(self, mock_github, client, empty_github_data):
+    def test_metrics_empty_results(self, mock_github, client, empty_github_data, valid_date_range_7_days):
         """Test metrics endpoint handles empty results correctly."""
         mock_github.contributions_by.return_value = empty_github_data
         
-        response = client.get('/api/metrics?user=testuser&days=7')
+        from_date = valid_date_range_7_days['from_date']
+        to_date = valid_date_range_7_days['to_date']
+        response = client.get(f'/api/metrics?user=testuser&from_date={from_date}&to_date={to_date}')
         assert response.status_code == 200
         
         data = json.loads(response.data)
@@ -176,15 +159,194 @@ class TestMetricsEndpoint:
         assert all(count == 0 for count in data['summary']['by_category'].values())
 
 
+class TestDateRangeValidation:
+    """Tests for date range parameter validation."""
+    
+    def test_invalid_from_date_format_us(self, client, invalid_date_format):
+        """Test invalid from_date format (MM-DD-YYYY) returns 400."""
+        dates = invalid_date_format['us_format']
+        response = client.get(f'/api/metrics?user=testuser&from_date={dates["from_date"]}&to_date={dates["to_date"]}')
+        assert response.status_code == 400
+        
+        data = json.loads(response.data)
+        assert data['error']['code'] == 'INVALID_DATE_FORMAT'
+        assert 'YYYY-MM-DD' in data['error']['message']
+    
+    def test_invalid_to_date_format_european(self, client, invalid_date_format):
+        """Test invalid to_date format (DD/MM/YYYY) returns 400."""
+        dates = invalid_date_format['european_format']
+        response = client.get(f'/api/metrics?user=testuser&from_date={dates["from_date"]}&to_date={dates["to_date"]}')
+        assert response.status_code == 400
+        
+        data = json.loads(response.data)
+        assert data['error']['code'] == 'INVALID_DATE_FORMAT'
+    
+    def test_from_date_after_to_date(self, client, invalid_date_range_reversed):
+        """Test from_date > to_date returns 400 with INVALID_DATE_RANGE."""
+        from_date = invalid_date_range_reversed['from_date']
+        to_date = invalid_date_range_reversed['to_date']
+        response = client.get(f'/api/metrics?user=testuser&from_date={from_date}&to_date={to_date}')
+        assert response.status_code == 400
+        
+        data = json.loads(response.data)
+        assert data['error']['code'] == 'INVALID_DATE_RANGE'
+        assert 'before' in data['error']['message'].lower()
+    
+    def test_date_range_exceeds_200_days(self, client, invalid_date_range_too_large):
+        """Test date range > 200 days returns 400 with DATE_RANGE_TOO_LARGE."""
+        from_date = invalid_date_range_too_large['from_date']
+        to_date = invalid_date_range_too_large['to_date']
+        response = client.get(f'/api/metrics?user=testuser&from_date={from_date}&to_date={to_date}')
+        assert response.status_code == 400
+        
+        data = json.loads(response.data)
+        assert data['error']['code'] == 'DATE_RANGE_TOO_LARGE'
+        assert '200' in data['error']['message']
+    
+    def test_future_to_date_not_allowed(self, client, invalid_date_range_future):
+        """Test future to_date returns 400 with FUTURE_DATE_NOT_ALLOWED."""
+        from_date = invalid_date_range_future['from_date']
+        to_date = invalid_date_range_future['to_date']
+        response = client.get(f'/api/metrics?user=testuser&from_date={from_date}&to_date={to_date}')
+        assert response.status_code == 400
+        
+        data = json.loads(response.data)
+        assert data['error']['code'] == 'FUTURE_DATE_NOT_ALLOWED'
+        assert 'future' in data['error']['message'].lower()
+    
+    @patch('api.routes.github_events')
+    def test_valid_date_range_1_day(self, mock_github, client, mock_github_data, valid_date_range_1_day):
+        """Test valid 1-day range (same day) returns 200."""
+        mock_github.contributions_by.return_value = mock_github_data
+        
+        from_date = valid_date_range_1_day['from_date']
+        to_date = valid_date_range_1_day['to_date']
+        response = client.get(f'/api/metrics?user=testuser&from_date={from_date}&to_date={to_date}')
+        assert response.status_code == 200
+        
+        data = json.loads(response.data)
+        assert 'meta' in data
+        assert 'period' in data['meta']
+    
+    @patch('api.routes.github_events')
+    def test_valid_date_range_7_days(self, mock_github, client, mock_github_data, valid_date_range_7_days):
+        """Test valid 7-day range returns 200."""
+        mock_github.contributions_by.return_value = mock_github_data
+        
+        from_date = valid_date_range_7_days['from_date']
+        to_date = valid_date_range_7_days['to_date']
+        response = client.get(f'/api/metrics?user=testuser&from_date={from_date}&to_date={to_date}')
+        assert response.status_code == 200
+        
+        data = json.loads(response.data)
+        assert data['meta']['user'] == 'testuser'
+    
+    @patch('api.routes.github_events')
+    def test_valid_date_range_200_days(self, mock_github, client, mock_github_data, valid_date_range_200_days):
+        """Test valid 200-day range (maximum) returns 200."""
+        mock_github.contributions_by.return_value = mock_github_data
+        
+        from_date = valid_date_range_200_days['from_date']
+        to_date = valid_date_range_200_days['to_date']
+        response = client.get(f'/api/metrics?user=testuser&from_date={from_date}&to_date={to_date}')
+        assert response.status_code == 200
+        
+        data = json.loads(response.data)
+        assert 'meta' in data
+        assert 'period' in data['meta']
+    
+    @patch('api.routes.github_events')
+    def test_date_range_with_custom_owner_repo(self, mock_github, client, mock_github_data, valid_date_range_7_days):
+        """Test date range with custom owner/repo parameters."""
+        mock_github.contributions_by.return_value = mock_github_data
+        
+        from_date = valid_date_range_7_days['from_date']
+        to_date = valid_date_range_7_days['to_date']
+        response = client.get(
+            f'/api/metrics?user=testuser&from_date={from_date}&to_date={to_date}'
+            f'&owner=TestOrg&repo=TestRepo'
+        )
+        assert response.status_code == 200
+        
+        data = json.loads(response.data)
+        assert data['meta']['repository'] == 'TestOrg/TestRepo'
+
+
+class TestDateRangeMetadata:
+    """Tests for date range in response metadata."""
+    
+    @patch('api.routes.github_events')
+    def test_response_includes_date_range_in_meta(self, mock_github, client, mock_github_data, valid_date_range_7_days):
+        """Test response meta includes period.start and period.end."""
+        mock_github.contributions_by.return_value = mock_github_data
+        
+        from_date = valid_date_range_7_days['from_date']
+        to_date = valid_date_range_7_days['to_date']
+        response = client.get(f'/api/metrics?user=testuser&from_date={from_date}&to_date={to_date}')
+        assert response.status_code == 200
+        
+        data = json.loads(response.data)
+        assert 'period' in data['meta']
+        assert 'start' in data['meta']['period']
+        assert 'end' in data['meta']['period']
+        assert 'days' in data['meta']['period']
+    
+    @patch('api.routes.github_events')
+    def test_date_range_format_is_iso8601(self, mock_github, client, mock_github_data, valid_date_range_7_days):
+        """Test dates in response are ISO 8601 format with Z suffix."""
+        mock_github.contributions_by.return_value = mock_github_data
+        
+        from_date = valid_date_range_7_days['from_date']
+        to_date = valid_date_range_7_days['to_date']
+        response = client.get(f'/api/metrics?user=testuser&from_date={from_date}&to_date={to_date}')
+        assert response.status_code == 200
+        
+        data = json.loads(response.data)
+        start = data['meta']['period']['start']
+        end = data['meta']['period']['end']
+        
+        # Verify ISO 8601 format with Z suffix
+        assert start.endswith('Z')
+        assert end.endswith('Z')
+        assert 'T' in start
+        assert 'T' in end
+        
+        # Verify dates can be parsed
+        from datetime import datetime
+        datetime.fromisoformat(start.rstrip('Z'))
+        datetime.fromisoformat(end.rstrip('Z'))
+    
+    @patch('api.routes.github_events')
+    def test_period_days_calculated_correctly(self, mock_github, client, mock_github_data, valid_date_range_7_days):
+        """Test period.days matches the date range."""
+        mock_github.contributions_by.return_value = mock_github_data
+        
+        from_date = valid_date_range_7_days['from_date']
+        to_date = valid_date_range_7_days['to_date']
+        response = client.get(f'/api/metrics?user=testuser&from_date={from_date}&to_date={to_date}')
+        assert response.status_code == 200
+        
+        data = json.loads(response.data)
+        days = data['meta']['period']['days']
+        
+        # For a 7-day range (7 days apart), the inclusive days value should be 8
+        assert days == 8
+
+
 class TestResponseFormatter:
     """Tests for response_formatter module."""
     
-    def test_format_metrics_response_structure(self, mock_github_data):
+    def test_format_metrics_response_structure(self, mock_github_data, valid_date_range_7_days):
         """Test format_metrics_response returns correct structure."""
+        from datetime import datetime
+        from_date = valid_date_range_7_days['from_date_obj']
+        to_date = valid_date_range_7_days['to_date_obj']
+        
         result = format_metrics_response(
             mock_github_data,
             user='testuser',
-            days=7,
+            from_date=from_date,
+            to_date=to_date,
             owner='PowerShell',
             repo='PowerShell'
         )
@@ -211,24 +373,33 @@ class TestResponseFormatter:
     
     def test_format_metrics_response_meta_values(self, mock_github_data):
         """Test meta section contains correct values."""
+        from datetime import datetime, timedelta
+        to_date = datetime(2026, 2, 2)
+        from_date = to_date - timedelta(days=14)
+        
         result = format_metrics_response(
             mock_github_data,
             user='johndoe',
-            days=14,
+            from_date=from_date,
+            to_date=to_date,
             owner='TestOrg',
             repo='TestRepo'
         )
         
         assert result['meta']['user'] == 'johndoe'
         assert result['meta']['repository'] == 'TestOrg/TestRepo'
-        assert result['meta']['period']['days'] == 14
+        assert result['meta']['period']['days'] == 15  # 14 days back + 1 for inclusive range
     
-    def test_format_metrics_response_counts(self, mock_github_data):
+    def test_format_metrics_response_counts(self, mock_github_data, valid_date_range_7_days):
         """Test summary counts are calculated correctly."""
+        from_date = valid_date_range_7_days['from_date_obj']
+        to_date = valid_date_range_7_days['to_date_obj']
+        
         result = format_metrics_response(
             mock_github_data,
             user='testuser',
-            days=7,
+            from_date=from_date,
+            to_date=to_date,
             owner='PowerShell',
             repo='PowerShell'
         )
@@ -239,12 +410,16 @@ class TestResponseFormatter:
         assert result['summary']['by_category']['issues_opened'] == 2
         assert result['summary']['by_category']['prs_opened'] == 1
     
-    def test_format_metrics_response_with_none(self):
+    def test_format_metrics_response_with_none(self, valid_date_range_7_days):
         """Test format_metrics_response handles None input gracefully."""
+        from_date = valid_date_range_7_days['from_date_obj']
+        to_date = valid_date_range_7_days['to_date_obj']
+        
         result = format_metrics_response(
             None,
             user='testuser',
-            days=7,
+            from_date=from_date,
+            to_date=to_date,
             owner='PowerShell',
             repo='PowerShell'
         )
@@ -252,12 +427,16 @@ class TestResponseFormatter:
         assert result['summary']['total_actions'] == 0
         assert all(count == 0 for count in result['summary']['by_category'].values())
     
-    def test_format_metrics_response_with_empty_dict(self, empty_github_data):
+    def test_format_metrics_response_with_empty_dict(self, empty_github_data, valid_date_range_7_days):
         """Test format_metrics_response handles empty data."""
+        from_date = valid_date_range_7_days['from_date_obj']
+        to_date = valid_date_range_7_days['to_date_obj']
+        
         result = format_metrics_response(
             empty_github_data,
             user='testuser',
-            days=7,
+            from_date=from_date,
+            to_date=to_date,
             owner='PowerShell',
             repo='PowerShell'
         )
@@ -349,11 +528,13 @@ class TestErrorHandling:
         datetime.fromisoformat(timestamp)  # Should not raise
     
     @patch('api.routes.github_events')
-    def test_exception_handling(self, mock_github, client):
+    def test_exception_handling(self, mock_github, client, valid_date_range_7_days):
         """Test unexpected exceptions are handled gracefully."""
         mock_github.contributions_by.side_effect = RuntimeError("Unexpected error")
         
-        response = client.get('/api/metrics?user=testuser')
+        from_date = valid_date_range_7_days['from_date']
+        to_date = valid_date_range_7_days['to_date']
+        response = client.get(f'/api/metrics?user=testuser&from_date={from_date}&to_date={to_date}')
         assert response.status_code == 500
         
         data = json.loads(response.data)
@@ -369,7 +550,14 @@ class TestIntegration:
         """Test complete workflow from request to formatted response."""
         mock_github.contributions_by.return_value = mock_github_data
         
-        response = client.get('/api/metrics?user=testuser&days=14')
+        # Use 14-day range (ending yesterday to avoid future dates)
+        from datetime import datetime, timedelta
+        to_date = datetime.utcnow() - timedelta(days=1)  # Yesterday
+        from_date = to_date - timedelta(days=14)
+        from_date_str = from_date.strftime('%Y-%m-%d')
+        to_date_str = to_date.strftime('%Y-%m-%d')
+        
+        response = client.get(f'/api/metrics?user=testuser&from_date={from_date_str}&to_date={to_date_str}')
         assert response.status_code == 200
         
         data = json.loads(response.data)
@@ -379,28 +567,38 @@ class TestIntegration:
         
         # Verify data integrity
         assert data['meta']['user'] == 'testuser'
-        assert data['meta']['period']['days'] == 14
+        assert 'period' in data['meta']
+        assert 'days' in data['meta']['period']
         assert data['summary']['total_actions'] > 0
         assert len(data['data']['issues_opened']) == 2
         assert len(data['data']['prs_opened']) == 1
     
     @patch('api.routes.github_events')
-    def test_boundary_days_values(self, mock_github, client, empty_github_data):
-        """Test boundary values for days parameter."""
+    def test_boundary_date_range_values(self, mock_github, client, empty_github_data):
+        """Test boundary values for date range parameters."""
         mock_github.contributions_by.return_value = empty_github_data
         
-        # Test minimum valid value
-        response = client.get('/api/metrics?user=testuser&days=1')
+        from datetime import datetime, timedelta
+        to_date = datetime.utcnow() - timedelta(days=1)  # Yesterday to avoid future dates
+        
+        # Test minimum valid value (1 day - same day)
+        from_date_1 = to_date
+        response = client.get(
+            f'/api/metrics?user=testuser&from_date={from_date_1.strftime("%Y-%m-%d")}&to_date={to_date.strftime("%Y-%m-%d")}'
+        )
         assert response.status_code == 200
         
-        # Test maximum valid value
-        response = client.get('/api/metrics?user=testuser&days=180')
+        # Test maximum valid value (200 days)
+        from_date_200 = to_date - timedelta(days=200)
+        response = client.get(
+            f'/api/metrics?user=testuser&from_date={from_date_200.strftime("%Y-%m-%d")}&to_date={to_date.strftime("%Y-%m-%d")}'
+        )
         assert response.status_code == 200
         
-        # Test just below minimum
-        response = client.get('/api/metrics?user=testuser&days=0')
+        # Test just above maximum (201 days)
+        from_date_201 = to_date - timedelta(days=201)
+        response = client.get(
+            f'/api/metrics?user=testuser&from_date={from_date_201.strftime("%Y-%m-%d")}&to_date={to_date.strftime("%Y-%m-%d")}'
+        )
         assert response.status_code == 400
-        
-        # Test just above maximum
-        response = client.get('/api/metrics?user=testuser&days=181')
-        assert response.status_code == 400
+

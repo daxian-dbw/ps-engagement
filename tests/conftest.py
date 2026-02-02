@@ -120,3 +120,84 @@ def empty_github_data():
 def mock_datetime():
     """Mock datetime for consistent testing."""
     return datetime(2026, 1, 21, 12, 0, 0)
+
+
+@pytest.fixture
+def valid_date_range_7_days():
+    """Valid 7-day date range ending today."""
+    # Use dates in the past relative to actual current date
+    to_date = datetime.utcnow() - timedelta(days=1)  # Yesterday
+    from_date = to_date - timedelta(days=7)
+    return {
+        'from_date': from_date.strftime('%Y-%m-%d'),
+        'to_date': to_date.strftime('%Y-%m-%d'),
+        'from_date_obj': from_date,
+        'to_date_obj': to_date
+    }
+
+
+@pytest.fixture
+def valid_date_range_1_day():
+    """Valid 1-day date range (same day)."""
+    date = datetime.utcnow() - timedelta(days=1)  # Yesterday
+    return {
+        'from_date': date.strftime('%Y-%m-%d'),
+        'to_date': date.strftime('%Y-%m-%d'),
+        'from_date_obj': date,
+        'to_date_obj': date
+    }
+
+
+@pytest.fixture
+def valid_date_range_200_days():
+    """Valid 200-day date range (maximum allowed)."""
+    to_date = datetime.utcnow() - timedelta(days=1)  # Yesterday
+    from_date = to_date - timedelta(days=200)
+    return {
+        'from_date': from_date.strftime('%Y-%m-%d'),
+        'to_date': to_date.strftime('%Y-%m-%d'),
+        'from_date_obj': from_date,
+        'to_date_obj': to_date
+    }
+
+
+@pytest.fixture
+def invalid_date_range_reversed():
+    """Invalid date range where from_date > to_date."""
+    return {
+        'from_date': '2026-02-01',
+        'to_date': '2026-01-01'
+    }
+
+
+@pytest.fixture
+def invalid_date_range_too_large():
+    """Invalid date range exceeding 200 days."""
+    to_date = datetime.utcnow() - timedelta(days=1)  # Yesterday
+    from_date = to_date - timedelta(days=201)
+    return {
+        'from_date': from_date.strftime('%Y-%m-%d'),
+        'to_date': to_date.strftime('%Y-%m-%d')
+    }
+
+
+@pytest.fixture
+def invalid_date_range_future():
+    """Invalid date range with future dates."""
+    from_date = datetime.utcnow() + timedelta(days=10)  # Future
+    to_date = datetime.utcnow() + timedelta(days=20)  # Future
+    return {
+        'from_date': from_date.strftime('%Y-%m-%d'),
+        'to_date': to_date.strftime('%Y-%m-%d')
+    }
+
+
+@pytest.fixture
+def invalid_date_format():
+    """Date ranges with invalid formats."""
+    return {
+        'us_format': {'from_date': '01-26-2026', 'to_date': '02-02-2026'},
+        'european_format': {'from_date': '26/01/2026', 'to_date': '02/02/2026'},
+        'no_leading_zeros': {'from_date': '2026-1-26', 'to_date': '2026-2-2'},
+        'invalid_values': {'from_date': '2026-13-45', 'to_date': '2026-02-02'}
+    }

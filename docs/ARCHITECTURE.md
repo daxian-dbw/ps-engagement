@@ -1,16 +1,19 @@
 # GitHub Maintainer Activity Dashboard - Architecture Document
 
-**Version:** 1.1
-**Last Updated:** January 23, 2026
-**Status:** Phase 1 Complete - Production Ready
+**Version:** 1.2
+**Last Updated:** February 2, 2026
+**Status:** Phase 1 Complete - Production Ready with Date Range Support
 **Purpose:** Internal tool for tracking maintainer contributions to PowerShell repository
 
 **Recent Updates:**
-- Reflected actual implementation details from completed Phase 1
+- **v1.2 (Feb 2, 2026):** Implemented custom date range feature
+  - Changed API from `days` parameter to `from_date`/`to_date` parameters
+  - Added comprehensive date validation (format, range, future dates, max 200 days)
+  - Frontend transparently converts days to date ranges
+  - Updated test coverage to 66 tests (26 new date range tests)
+- **v1.1 (Jan 23, 2026):** Reflected actual implementation details from completed Phase 1
 - Updated API response formats to match code
 - Added security features documentation
-- Comprehensive test coverage documentation
-- Accurate status of all features and documentation
 
 ---
 
@@ -21,7 +24,11 @@
 **Backend:**
 - Flask application with modular structure
 - `/api/health` endpoint for health checks
-- `/api/metrics` endpoint with comprehensive parameter validation
+- `/api/metrics` endpoint with custom date range support
+- **Date Range Features:**
+  - Accepts `from_date` and `to_date` in YYYY-MM-DD format
+  - Comprehensive validation: format, range order, future dates, max 200 days
+  - Returns date range metadata in ISO 8601 format with 'Z' suffix
 - Integration with existing `github_events.py` module
 - Response formatter (`api/response_formatter.py`) for data transformation
 - Robust error handling with sanitization
@@ -31,6 +38,7 @@
 - Single-page application with vanilla JavaScript
 - Search interface with username input
 - Time period selection (1, 3, 7, 14, 30, 60, 90, 180 days)
+- **Date Range Conversion:** Frontend automatically converts days to `from_date`/`to_date` before API calls
 - Four main activity categories with collapsible UI
 - Sub-sections for Issue Triage (Comments, Labeled, Closed)
 - Sub-sections for Code Reviews (Comments, Reviews, Merged, Closed)
@@ -40,11 +48,21 @@
 
 **Security:**
 - Error message sanitization (tokens, paths, env vars)
-- Input validation (username, days parameter)
-- Parameter range checking (days: 1-180)
+- Input validation (username, date format)
+- **Date Range Validation:**
+  - Format: YYYY-MM-DD (ISO 8601)
+  - Range order: `from_date` ≤ `to_date`
+  - No future dates allowed
+  - Maximum range: 200 days
+- Parameter sanitization and type checking
 
 **Testing:**
-- 28 automated tests (100% passing)
+- **66 automated tests (100% passing)**
+- **Date Range Test Coverage:**
+  - 10 date validation tests (format, range, future dates, max days)
+  - 3 response metadata tests (ISO format, days calculation)
+  - 7 date-specific error handling tests
+  - 2 integration tests with date ranges
 - Error handling validation documented
 - Frontend integration test plan
 - Mock GitHub API for consistent testing
@@ -194,14 +212,23 @@ Fetch maintainer activity metrics.
 
 **Query Parameters:**
 - `user` (required): GitHub username
-- `days` (optional, default=7): Number of days to look back (1-180)
+- `from_date` (required): Start date in YYYY-MM-DD format
+- `to_date` (required): End date in YYYY-MM-DD format
 - `owner` (optional, default=PowerShell): Repository owner
 - `repo` (optional, default=PowerShell): Repository name
 
+**Date Range Constraints:**
+- Format: YYYY-MM-DD (ISO 8601)
+- `from_date` must be ≤ `to_date`
+- Neither date can be in the future
+- Maximum range: 200 days
+
 **Request Example:**
 ```
-GET /api/metrics?user=daxian-dbw&days=7
+GET /api/metrics?user=daxian-dbw&from_date=2026-01-26&to_date=2026-02-02
 ```
+
+**Legacy Note:** The API previously accepted a `days` parameter. This is no longer supported at the API level. Frontend applications should convert days to date ranges before making API calls.
 
 **Response Structure:**
 ```json
@@ -210,9 +237,9 @@ GET /api/metrics?user=daxian-dbw&days=7
     "user": "daxian-dbw",
     "repository": "PowerShell/PowerShell",
     "period": {
-      "days": 7,
-      "start": "2026-01-13T00:00:00Z",
-      "end": "2026-01-20T10:30:00Z"
+      "days": 8,
+      "start": "2026-01-26T00:00:00Z",
+      "end": "2026-02-02T00:00:00Z"
     },
     "fetched_at": "2026-01-20T10:30:00Z"
   },
@@ -326,7 +353,7 @@ GET /api/metrics?user=daxian-dbw&days=7
 **Status Codes:**
 - 200: Success
 - 400: Bad request (invalid parameters)
-  - Error codes: `MISSING_PARAMETER`, `INVALID_PARAMETER`
+  - Error codes: `MISSING_PARAMETER`, `INVALID_PARAMETER`, `INVALID_DATE_FORMAT`, `INVALID_DATE_RANGE`, `DATE_RANGE_TOO_LARGE`, `FUTURE_DATE_NOT_ALLOWED`
 - 404: User not found
   - Error code: `USER_NOT_FOUND`
 - 429: Rate limit exceeded
@@ -436,7 +463,13 @@ GET /api/metrics?user=daxian-dbw&days=7
 **1. api-client.js** - API communication
 ```javascript
 class APIClient {
-  async fetchMetrics(user, days) { ... }
+  async fetchMetrics(user, days) {
+    // Converts days to from_date/to_date
+    const toDate = new Date();
+    const fromDate = new Date();
+    fromDate.setDate(toDate.getDate() - days);
+    // Sends: ?user=X&from_date=YYYY-MM-DD&to_date=YYYY-MM-DD
+  }
   handleError(error) { ... }
 }
 ```
@@ -496,13 +529,25 @@ Store in `localStorage` for persistence across sessions.
    - Shows loading spinner
 
 2. **Frontend sends API request**
-   ```javascript
-   GET /api/metrics?user=daxian-dbw&days=7
-   ```
+   - User selects days (e.g., 7)
+   - Frontend converts to date range:
+     ```javascript
+     const toDate = new Date().toISOString().split('T')[0];
+     const fromDate = new Date(Date.now() - 7*24*60*60*1000).toISOString().split('T')[0];
+     ```
+   - Sends:
+     ```javascript
+     GET /api/metrics?user=daxian-dbw&from_date=2026-01-26&to_date=2026-02-02
+     ```
 
 3. **Backend receives request**
-   - Validates parameters
-   - Calls `contributions_by()` from `github_events` module
+   - Validates required parameters (`user`, `from_date`, `to_date`)
+   - **Date validation:**
+     - Parses dates using `datetime.strptime(date_str, '%Y-%m-%d')`
+     - Checks `from_date` ≤ `to_date`
+     - Checks no future dates
+     - Checks range ≤ 200 days
+   - Calls `contributions_by()` from `github_events` module with datetime objects
    - Formats response using `response_formatter.py`
 
 4. **Backend fetches from GitHub API**
@@ -636,34 +681,56 @@ CMD ["python", "app.py"]
 
 ## Testing Strategy
 
-### Unit Tests ✅ 28/28 PASSING
+### Unit Tests ✅ 66/66 PASSING
 
 **Test Coverage:**
-- API endpoint validation (required parameters, ranges)
-- Error handling (network errors, authentication, rate limits)
-- Response formatting (nested structures, None handling)
-- Security (error message sanitization)
-- GitHub API integration (with mocks)
-- Edge cases (empty data, malformed responses)
+- **Date Range Validation (13 tests):**
+  - Invalid date formats (US, European)
+  - Date range order validation
+  - Future date rejection
+  - Max range (200 days) enforcement
+  - Missing date parameter detection
+  - Valid date ranges (1 day, 7 days, 200 days)
+- **Response Metadata (3 tests):**
+  - Date range in response metadata
+  - ISO 8601 format with 'Z' suffix
+  - Days calculation accuracy
+- **Error Handling (17 tests):**
+  - Date-specific error messages (7 tests)
+  - GitHub API errors (4 tests)
+  - Security and sanitization (3 tests)
+  - Error message quality (3 tests)
+- Response formatting (18 tests)
+- API endpoint validation (12 tests)
+- Integration workflows (2 tests)
+- Edge cases (empty data, None handling)
 
 **Test Files:**
-- `tests/test_api.py` - API endpoint tests
-- `tests/test_additional.py` - Extended error handling tests
-- `tests/test_error_handling.py` - Security and sanitization tests
+- `tests/test_api.py` - API endpoint and date range validation tests (49 tests)
+- `tests/test_error_handling.py` - Error handling and date validation (17 tests)
+- `tests/test_additional.py` - Response formatter edge cases (12 tests)
 
 **Sample Tests:**
 ```python
-# tests/test_api.py
-def test_metrics_endpoint_valid_user():
-    response = client.get('/api/metrics?user=daxian-dbw&days=7')
-    assert response.status_code == 200
-    assert 'data' in response.json
+# tests/test_api.py - Date Range Validation
+def test_invalid_date_format():
+    response = client.get('/api/metrics?user=test&from_date=01-26-2026&to_date=02-02-2026')
+    assert response.status_code == 400
+    assert response.json['error']['code'] == 'INVALID_DATE_FORMAT'
 
-def test_metrics_endpoint_invalid_user():
-    response = client.get('/api/metrics?user=invalid&days=7')
-    assert response.status_code == 404
-    assert 'USER_NOT_FOUND' in response.json['error']['code']
+def test_date_range_exceeds_200_days():
+    to_date = datetime.utcnow() - timedelta(days=1)
+    from_date = to_date - timedelta(days=201)
+    response = client.get(f'/api/metrics?user=test&from_date={from_date:%Y-%m-%d}&to_date={to_date:%Y-%m-%d}')
+    assert response.status_code == 400
+    assert response.json['error']['code'] == 'DATE_RANGE_TOO_LARGE'
 
+def test_future_date_not_allowed():
+    response = client.get('/api/metrics?user=test&from_date=2026-02-10&to_date=2026-02-20')
+    assert response.status_code == 400
+    assert response.json['error']['code'] == 'FUTURE_DATE_NOT_ALLOWED'
+
+# tests/test_error_handling.py - Error Message Quality
 def test_no_github_token_leakage():
     # Validates error sanitization
     assert 'ghp_' not in error_message
@@ -685,11 +752,16 @@ def test_no_github_token_leakage():
 ### Phase 1 (MVP) - ✅ COMPLETED
 - ✅ Single user search
 - ✅ 4 main categories with collapsible UI (with sub-sections)
+- ✅ **Custom date range support:**
+  - API accepts `from_date` and `to_date` (YYYY-MM-DD format)
+  - Frontend converts days to date ranges transparently
+  - Comprehensive date validation (format, range, future dates, max 200 days)
+  - Date range metadata in ISO 8601 format
 - ✅ Comprehensive error handling and validation
 - ✅ Time period selection (1, 3, 7, 14, 30, 60, 90, 180 days)
 - ✅ Security: Error message sanitization
 - ✅ State persistence via localStorage
-- ✅ Comprehensive test coverage (28 automated tests)
+- ✅ **Comprehensive test coverage (66 automated tests)**
 
 ### Phase 2 - Enhanced Features (3-6 months)
 - Response caching (SQLite)
@@ -849,8 +921,9 @@ logging.basicConfig(
 - ✅ UI is intuitive (no training required)
 - ✅ Handles concurrent users (tested with mock load)
 - ✅ Zero security vulnerabilities - error sanitization implemented
-- ✅ 28/28 automated tests passing
+- ✅ **66/66 automated tests passing (100% pass rate)**
 - ✅ Comprehensive error handling with user-friendly messages
+- ✅ **Custom date range support with validation**
 - ⏳ Production uptime tracking (pending deployment)
 
 ### User Satisfaction (In Progress)
@@ -888,12 +961,17 @@ logging.basicConfig(
 
 ### Get activity for user over 30 days
 ```bash
-curl "http://localhost:5000/api/metrics?user=daxian-dbw&days=30"
+curl "http://localhost:5000/api/metrics?user=daxian-dbw&from_date=2026-01-03&to_date=2026-02-02"
 ```
 
 ### Get activity for different repository
 ```bash
-curl "http://localhost:5000/api/metrics?user=daxian-dbw&days=7&owner=Microsoft&repo=vscode"
+curl "http://localhost:5000/api/metrics?user=daxian-dbw&from_date=2026-01-26&to_date=2026-02-02&owner=Microsoft&repo=vscode"
+```
+
+### Get activity for custom date range
+```bash
+curl "http://localhost:5000/api/metrics?user=daxian-dbw&from_date=2025-12-01&to_date=2026-01-01"
 ```
 
 ---
@@ -904,6 +982,7 @@ curl "http://localhost:5000/api/metrics?user=daxian-dbw&days=7&owner=Microsoft&r
 |---------|------|--------|---------|
 | 1.0 | 2026-01-20 | GitHub Copilot | Initial architecture document |
 | 1.1 | 2026-01-23 | GitHub Copilot | Updated to reflect actual implementation<br>• Corrected API response formats<br>• Added security documentation<br>• Added test coverage details<br>• Updated phase completion status<br>• Added implementation status section |
+| 1.2 | 2026-02-02 | GitHub Copilot | **Custom Date Range Feature**<br>• Changed API from `days` to `from_date`/`to_date` parameters<br>• Added comprehensive date validation documentation<br>• Updated test coverage: 28 → 66 tests<br>• Added date range constraints and error codes<br>• Updated all examples and queries<br>• Documented frontend date conversion logic |
 
 ---
 
@@ -915,37 +994,60 @@ This is a Flask-based web dashboard that queries GitHub GraphQL API to display m
 
 **Key Files:**
 - `app.py` - Flask app initialization and main routes
-- `api/routes.py` - API endpoints (`/api/health`, `/api/metrics`)
+- `api/routes.py` - API endpoints (`/api/health`, `/api/metrics`) with date range validation
 - `api/response_formatter.py` - Transforms GitHub data to frontend format
 - `github_events/github_events.py` - GitHub GraphQL API integration
 - `static/js/app.js` - Main frontend controller
-- `static/js/api-client.js` - API communication layer
+- `static/js/api-client.js` - API communication layer (converts days to dates)
 - `static/js/ui-components.js` - UI component generators
+- `tests/conftest.py` - Test fixtures for date ranges
 
 **Data Flow:**
-1. User enters GitHub username and time period
-2. Frontend sends GET request to `/api/metrics?user=X&days=Y`
-3. Backend validates parameters and calls `github_events.contributions_by()`
-4. GitHub data is fetched via GraphQL, formatted by `response_formatter`
-5. JSON response returned with structure: `{meta, summary, data}`
-6. Frontend renders collapsible categories with sub-sections
+1. User enters GitHub username and selects time period (days)
+2. **Frontend converts days to date range:**
+   - `toDate = today`
+   - `fromDate = today - days`
+   - Formats as YYYY-MM-DD
+3. Frontend sends GET request to `/api/metrics?user=X&from_date=YYYY-MM-DD&to_date=YYYY-MM-DD`
+4. **Backend validates dates:**
+   - Required: both `from_date` and `to_date`
+   - Format: YYYY-MM-DD (parsed with `datetime.strptime`)
+   - Range: `from_date` ≤ `to_date`
+   - No future dates allowed
+   - Max range: 200 days
+5. Backend calls `github_events.contributions_by()` with datetime objects
+6. GitHub data is fetched via GraphQL, formatted by `response_formatter`
+7. JSON response returned with structure: `{meta, summary, data}`
+8. Frontend renders collapsible categories with sub-sections
 
 **API Response Structure:**
+- `meta.period` - Contains `days` (calculated), `start` (ISO), `end` (ISO)
 - `data.issues_opened[]` - Direct list of issues
 - `data.prs_opened[]` - Direct list of PRs with state
 - `data.issue_triage{}` - Object with `comments[]`, `labeled[]`, `closed[]`
 - `data.code_reviews{}` - Object with `comments[]`, `reviews[]`, `merged[]`, `closed[]`
 - All items use `timestamp` field (not `occurredAt`, `publishedAt`, etc.)
 - Issue/PR numbers stored as `number`, titles as `title`
+- All timestamps in ISO 8601 format with 'Z' suffix
 
 **Error Handling:**
 - All errors return `{error: {code, message, timestamp}}`
-- Error codes: `MISSING_PARAMETER`, `INVALID_PARAMETER`, `USER_NOT_FOUND`, `RATE_LIMIT_EXCEEDED`, `GITHUB_API_ERROR`, `AUTHENTICATION_ERROR`, `INTERNAL_ERROR`
+- **Error codes:** 
+  - **Date validation:** `INVALID_DATE_FORMAT`, `INVALID_DATE_RANGE`, `DATE_RANGE_TOO_LARGE`, `FUTURE_DATE_NOT_ALLOWED`
+  - **Parameters:** `MISSING_PARAMETER`, `INVALID_PARAMETER`
+  - **GitHub:** `USER_NOT_FOUND`, `RATE_LIMIT_EXCEEDED`, `GITHUB_API_ERROR`, `AUTHENTICATION_ERROR`
+  - **Server:** `INTERNAL_ERROR`
 - Error sanitization removes tokens, paths, env vars
 
 **Testing:**
-- Run: `pytest tests/`
-- 28 tests cover API validation, error handling, security
+- Run: `pytest tests/` (or `pytest tests/ -v -W ignore::DeprecationWarning` to suppress warnings)
+- **66 tests** cover:
+  - Date range validation (format, constraints)
+  - API validation (parameters, responses)
+  - Error handling (GitHub API, network)
+  - Security (sanitization)
+  - Response formatting (metadata, data structure)
+- Test fixtures in `conftest.py` provide reusable date ranges
 - Mocks used for GitHub API to ensure consistent tests
 
 **Configuration:**
@@ -953,7 +1055,14 @@ This is a Flask-based web dashboard that queries GitHub GraphQL API to display m
 - Required: `GITHUB_TOKEN`
 - Optional: `GITHUB_OWNER`, `GITHUB_REPO`, `DEFAULT_DAYS_BACK`, `CACHE_TTL_MINUTES`
 
-**Current Phase:** Phase 1 complete, fully functional MVP ready for deployment
+**Current Phase:** Phase 1 complete with custom date range support, 66/66 tests passing, ready for deployment
+
+**Important Implementation Details:**
+- **Date Parameters:** API requires `from_date` and `to_date` (YYYY-MM-DD), NOT `days`
+- **Frontend Conversion:** Frontend converts user-selected days to date ranges before API calls
+- **Date Validation:** Backend validates format, range order, future dates, and max 200 days
+- **Response Format:** `meta.period` includes `start`, `end` (ISO 8601 with 'Z'), and calculated `days`
+- **No Legacy Support:** Old `days` parameter is not supported at API level
 
 ---
 
