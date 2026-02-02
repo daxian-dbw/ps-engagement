@@ -84,7 +84,7 @@ A web dashboard for visualizing GitHub maintainer activity across issues, pull r
 
 3. **Open your browser**
    
-   Navigate to: [http://localhost:5000](http://localhost:5000)
+   Navigate to: [http://localhost:5001](http://localhost:5001)
 
 4. **Use the dashboard**
    - Enter a GitHub username in the search box
@@ -118,8 +118,8 @@ A web dashboard for visualizing GitHub maintainer activity across issues, pull r
 ### Port Already in Use
 
 **Error: "Address already in use"**
-- Another application is using port 5000
-- Stop the other application or change the port in [app.py](app.py) by modifying `app.run(port=5000)`
+- Another application is using port 5001
+- Stop the other application or change the port in [app.py](app.py) by modifying `app.run(port=5001)`
 
 ### No Activity Displayed
 

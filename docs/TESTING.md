@@ -13,7 +13,7 @@
 |----------|-------|
 | **Test Method** | Manual + Automated (Playwright MCP) |
 | **Browser** | Chromium |
-| **Server** | http://localhost:5000 |
+| **Server** | http://localhost:5001 |
 | **Test Data** | Real API responses |
 | **Viewports Tested** | Mobile (375px), Tablet (768px), Desktop (1920px) |
 
