@@ -318,11 +318,15 @@ def _graphql_request(query: str, variables: Dict, token: str | None = None) -> D
 
 
 def _parse_date(date_str: str) -> datetime:
+    """Convert date string into a naive datetime object.
+    
+    Args:
+        date_str: Date string in the format of '2026-01-12T18:44:56Z'.
+    
+    Returns:
+        A naive datetime (no timezone info)
+    """
     return datetime.strptime(date_str, "%Y-%m-%dT%H:%M:%SZ")
-
-
-def _since_datetime(days_back: int) -> datetime:
-    return datetime.utcnow() - timedelta(days=days_back)
 
 
 def _check_issue_engagement(issue: Dict, team_members: set[str], debug: bool = False) -> bool:

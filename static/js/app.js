@@ -785,9 +785,14 @@ class Dashboard {
             const startDate = data.meta?.period?.start;
             const endDate = data.meta?.period?.end;
             if (startDate && endDate) {
-                // Extract YYYY-MM-DD from ISO datetime strings
-                const from = startDate.split('T')[0];
-                const to = endDate.split('T')[0];
+                // Convert UTC datetime strings to local dates
+                const fromDate = new Date(startDate);
+                const toDate = new Date(endDate);
+                
+                // Format as YYYY-MM-DD in local timezone
+                const from = this.formatDateForInput(fromDate);
+                const to = this.formatDateForInput(toDate);
+                
                 this.elements.summaryDateRange.textContent = ` (${from} to ${to})`;
             } else {
                 this.elements.summaryDateRange.textContent = '';
