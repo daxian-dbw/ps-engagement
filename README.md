@@ -6,6 +6,7 @@ A web dashboard for visualizing GitHub maintainer activity across issues, pull r
 
 - **Single User Search**: Search for any GitHub user's activity in a repository
 - **Time Period Selection**: View activity over 1, 3, 7, 14, 30, 90, or 180 days
+- **Timezone-Aware**: Automatically detects your timezone and interprets date boundaries correctly
 - **Four Activity Categories**:
   - 📝 Issues Opened
   - 🚀 Pull Requests Opened

@@ -1,11 +1,17 @@
 # GitHub Maintainer Activity Dashboard - Architecture Document
 
-**Version:** 1.2
-**Last Updated:** February 2, 2026
-**Status:** Phase 1 Complete - Production Ready with Date Range Support
+**Version:** 1.3
+**Last Updated:** February 3, 2026
+**Status:** Phase 1 Complete - Production Ready with Timezone Support
 **Purpose:** Internal tool for tracking maintainer contributions to PowerShell repository
 
 **Recent Updates:**
+- **v1.3 (Feb 3, 2026):** Implemented timezone-aware date handling
+  - Frontend auto-detects user's timezone (IANA format) and sends with API requests
+  - Backend interprets date boundaries in user's local timezone, then converts to UTC
+  - Fixes issue where users' contributions on boundary dates were missing
+  - Date range display shows dates in user's local timezone
+  - Added 11 new timezone validation tests
 - **v1.2 (Feb 2, 2026):** Implemented custom date range feature
   - Changed API from `days` parameter to `from_date`/`to_date` parameters
   - Added comprehensive date validation (format, range, future dates, max 200 days)
@@ -27,7 +33,9 @@
 - `/api/metrics` endpoint with custom date range support
 - **Date Range Features:**
   - Accepts `from_date` and `to_date` in YYYY-MM-DD format
-  - Comprehensive validation: format, range order, future dates, max 200 days
+  - Accepts optional `timezone` parameter (IANA timezone name, default: "UTC")
+  - Interprets date boundaries in user's timezone, converts to UTC for processing
+  - Comprehensive validation: format, range order, future dates, max 200 days, invalid timezones
   - Returns date range metadata in ISO 8601 format with 'Z' suffix
 - Integration with existing `github_events.py` module
 - Response formatter (`api/response_formatter.py`) for data transformation
@@ -38,7 +46,11 @@
 - Single-page application with vanilla JavaScript
 - Search interface with username input
 - Time period selection (1, 3, 7, 14, 30, 60, 90, 180 days)
-- **Date Range Conversion:** Frontend automatically converts days to `from_date`/`to_date` before API calls
+- **Timezone-Aware Date Handling:**
+  - Auto-detects user's timezone using Intl.DateTimeFormat API
+  - Sends timezone parameter with all API requests
+  - Displays date ranges in user's local timezone
+  - Converts days to `from_date`/`to_date` before API calls
 - Four main activity categories with collapsible UI
 - Sub-sections for Issue Triage (Comments, Labeled, Closed)
 - Sub-sections for Code Reviews (Comments, Reviews, Merged, Closed)
@@ -48,21 +60,28 @@
 
 **Security:**
 - Error message sanitization (tokens, paths, env vars)
-- Input validation (username, date format)
+- Input validation (username, date format, timezone)
 - **Date Range Validation:**
   - Format: YYYY-MM-DD (ISO 8601)
   - Range order: `from_date` ≤ `to_date`
   - No future dates allowed
   - Maximum range: 200 days
+- **Timezone Validation:**
+  - Only IANA timezone names accepted (e.g., "America/Los_Angeles")
+  - Abbreviations (PST, EST) rejected for consistency
+  - Invalid timezones return 400 error with helpful message
 - Parameter sanitization and type checking
 
 **Testing:**
-- **66 automated tests (100% passing)**
+- **77 automated tests (100% passing)**
 - **Date Range Test Coverage:**
   - 10 date validation tests (format, range, future dates, max days)
   - 3 response metadata tests (ISO format, days calculation)
   - 7 date-specific error handling tests
   - 2 integration tests with date ranges
+- **Timezone Test Coverage:**
+  - 9 timezone parameter tests (valid/invalid timezones, defaults)
+  - 2 timezone boundary conversion tests (UTC vs PST differences)
 - Error handling validation documented
 - Frontend integration test plan
 - Mock GitHub API for consistent testing
@@ -90,6 +109,43 @@ This document outlines the architecture for a web-based dashboard that displays 
 - Easy to expand with new features
 - Minimal operational overhead
 - Good performance for internal use (5-20 concurrent users)
+
+---
+
+## Timezone-Aware Date Handling
+
+### Problem Statement
+
+Prior to v1.3, date boundaries were interpreted as UTC on both frontend and backend. This caused confusion when users searched for contributions within specific dates in their local timezone.
+
+**Example Issue:**
+- User in PST selects date range "2026-02-01 to 2026-02-02"
+- User assumes this means end of day on 2026-02-02 in PST (11:59 PM PST = 07:59 AM UTC on 2026-02-03)
+- But system interpreted "2026-02-02" as UTC (11:59 PM UTC on 2026-02-02)
+- User's contribution made at 5:06 PM PST on Feb 2 (01:06 AM UTC on Feb 3) was excluded from results
+
+### Solution
+
+**Frontend (JavaScript):**
+- Auto-detects user's timezone using `Intl.DateTimeFormat().resolvedOptions().timeZone`
+- Returns IANA timezone name (e.g., "America/Los_Angeles")
+- Sends timezone parameter with all API requests
+- Displays returned dates in local timezone when showing date range
+
+**Backend (Python):**
+- Accepts optional `timezone` parameter (defaults to "UTC" for backward compatibility)
+- Validates timezone using `zoneinfo.ZoneInfo(timezone_str)`
+- Parses YYYY-MM-DD dates and applies timezone to start/end of day
+- Converts timezone-aware datetime to UTC for GitHub API queries
+- Example: "2026-02-02" + "America/Los_Angeles" → "2026-02-02 00:00:00 PST" → "2026-02-02 08:00:00 UTC"
+
+**Backend Processing (`github_events.py`):**
+- Uses UTC datetime objects exclusively (as GitHub API returns UTC timestamps)
+- All date comparisons done in UTC to avoid timezone conversion issues
+
+### Result
+
+Users can now select dates in their local timezone and see contributions correctly included, even when they occur near date boundaries.
 
 ---
 
@@ -214,6 +270,7 @@ Fetch maintainer activity metrics.
 - `user` (required): GitHub username
 - `from_date` (required): Start date in YYYY-MM-DD format
 - `to_date` (required): End date in YYYY-MM-DD format
+- `timezone` (optional, default="UTC"): IANA timezone name (e.g., "America/Los_Angeles", "America/New_York")
 - `owner` (optional, default=PowerShell): Repository owner
 - `repo` (optional, default=PowerShell): Repository name
 
@@ -222,11 +279,18 @@ Fetch maintainer activity metrics.
 - `from_date` must be ≤ `to_date`
 - Neither date can be in the future
 - Maximum range: 200 days
+- Timezone must be valid IANA timezone name (abbreviations like "PST" not accepted)
 
 **Request Example:**
 ```
-GET /api/metrics?user=daxian-dbw&from_date=2026-01-26&to_date=2026-02-02
+GET /api/metrics?user=daxian-dbw&from_date=2026-01-26&to_date=2026-02-02&timezone=America/Los_Angeles
 ```
+
+**Timezone Behavior:**
+- Dates are interpreted as start/end of day in the specified timezone
+- `from_date=2026-02-01` with `timezone=America/Los_Angeles` means 2026-02-01 00:00:00 PST
+- Backend converts to UTC (2026-02-01 08:00:00 UTC) for GitHub API queries
+- This ensures user contributions made in their local timezone are correctly included
 
 **Legacy Note:** The API previously accepted a `days` parameter. This is no longer supported at the API level. Frontend applications should convert days to date ranges before making API calls.
 
@@ -530,24 +594,32 @@ Store in `localStorage` for persistence across sessions.
 
 2. **Frontend sends API request**
    - User selects days (e.g., 7)
-   - Frontend converts to date range:
+   - Frontend detects user's timezone:
+     ```javascript
+     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone; // e.g., "America/Los_Angeles"
+     ```
+   - Frontend converts to date range in local timezone:
      ```javascript
      const toDate = new Date().toISOString().split('T')[0];
      const fromDate = new Date(Date.now() - 7*24*60*60*1000).toISOString().split('T')[0];
      ```
-   - Sends:
+   - Sends with timezone parameter:
      ```javascript
-     GET /api/metrics?user=daxian-dbw&from_date=2026-01-26&to_date=2026-02-02
+     GET /api/metrics?user=daxian-dbw&from_date=2026-01-26&to_date=2026-02-02&timezone=America/Los_Angeles
      ```
 
 3. **Backend receives request**
    - Validates required parameters (`user`, `from_date`, `to_date`)
+   - **Timezone handling:**
+     - Validates timezone using `ZoneInfo(timezone_str)` (defaults to "UTC" if not provided)
+     - Parses YYYY-MM-DD dates and applies timezone (start/end of day)
+     - Example: `2026-02-01` in `America/Los_Angeles` → `2026-02-01 00:00:00 PST`
+     - Converts to UTC: `2026-02-01 08:00:00 UTC`
    - **Date validation:**
-     - Parses dates using `datetime.strptime(date_str, '%Y-%m-%d')`
      - Checks `from_date` ≤ `to_date`
-     - Checks no future dates
+     - Checks no future dates (compares in UTC)
      - Checks range ≤ 200 days
-   - Calls `contributions_by()` from `github_events` module with datetime objects
+   - Calls `contributions_by()` from `github_events` module with UTC datetime objects
    - Formats response using `response_formatter.py`
 
 4. **Backend fetches from GitHub API**
