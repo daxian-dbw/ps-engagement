@@ -5,9 +5,11 @@ This module transforms raw data from github_events module into
 the API response format expected by the frontend.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List
 
+def _iso_format(date: datetime):
+    return date.strftime('%Y-%m-%dT%H:%M:%SZ')
 
 def format_metrics_response(
     raw_data: Optional[Dict[str, Any]],
@@ -23,8 +25,8 @@ def format_metrics_response(
     Args:
         raw_data: Raw data from github_events.contributions_by()
         user: GitHub username
-        from_date: Start date of the query period
-        to_date: End date of the query period
+        from_date: Start date of the query period (UTC timezone aware datetime)
+        to_date: End date of the query period (UTC timezone aware datetime)
         owner: Repository owner
         repo: Repository name
     
@@ -69,10 +71,10 @@ def format_metrics_response(
             'repository': f'{owner}/{repo}',
             'period': {
                 'days': days,
-                'start': from_date.isoformat() + 'Z',
-                'end': to_date.isoformat() + 'Z'
+                'start': _iso_format(from_date),
+                'end': _iso_format(to_date)
             },
-            'fetched_at': datetime.utcnow().isoformat() + 'Z'
+            'fetched_at': _iso_format(datetime.now(timezone.utc))
         },
         'summary': {
             'total_actions': total_actions,

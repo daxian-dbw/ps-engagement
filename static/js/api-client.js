@@ -11,6 +11,19 @@ class APIClient {
     }
 
     /**
+     * Get user's IANA timezone name (e.g., 'America/Los_Angeles')
+     * @returns {string} IANA timezone identifier
+     */
+    getUserTimezone() {
+        try {
+            return Intl.DateTimeFormat().resolvedOptions().timeZone;
+        } catch (error) {
+            console.warn('Could not detect timezone, defaulting to UTC:', error);
+            return 'UTC';
+        }
+    }
+
+    /**
      * Fetch metrics for a GitHub user
      * @param {string} user - GitHub username
      * @param {Object|number} options - Either {from_date: string, to_date: string} or a number (days)
@@ -38,6 +51,9 @@ class APIClient {
             params.append('from_date', this._formatDate(from));
             params.append('to_date', this._formatDate(to));
         }
+        
+        // Always include user's timezone for accurate date filtering
+        params.append('timezone', this.getUserTimezone());
         
         if (owner) params.append('owner', owner);
         if (repo) params.append('repo', repo);
