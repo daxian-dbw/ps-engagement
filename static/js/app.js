@@ -10,14 +10,23 @@
 class Dashboard {
     constructor() {
         this.apiClient = new APIClient();
+        this.teamEngagement = null; // Will be initialized later
         this.currentUser = null;
         this.currentDays = 7;
         this.selectionMode = 'quick'; // 'quick' or 'custom'
         this.customRange = { from: null, to: null }; // ISO date strings
         this.expandedSections = {};
+        this.currentTab = 'individual'; // 'individual' or 'team'
         
         // Cache DOM elements
         this.elements = {
+            // Tab elements
+            individualTab: null,
+            teamTab: null,
+            individualView: null,
+            teamView: null,
+            
+            // Individual view elements
             searchForm: null,
             usernameInput: null,
             searchButton: null,
@@ -52,6 +61,10 @@ class Dashboard {
         // Cache DOM elements
         this.cacheElements();
         
+        // Initialize Team Engagement component
+        this.teamEngagement = new TeamEngagement(this.apiClient);
+        this.teamEngagement.init();
+        
         // Initialize Flatpickr for date inputs
         this.initializeDatePickers();
         
@@ -64,6 +77,9 @@ class Dashboard {
         // Set up category listeners (will activate after categories are rendered)
         this.setupCategoryListeners();
         
+        // Set up tab listeners
+        this.setupTabListeners();
+        
         // Check API health
         this.checkAPIHealth();
         
@@ -74,6 +90,13 @@ class Dashboard {
      * Cache DOM elements for performance
      */
     cacheElements() {
+        // Tab elements
+        this.elements.individualTab = document.getElementById('individual-tab');
+        this.elements.teamTab = document.getElementById('team-tab');
+        this.elements.individualView = document.getElementById('individual-view');
+        this.elements.teamView = document.getElementById('team-view');
+        
+        // Individual view elements
         this.elements.searchForm = document.getElementById('search-form');
         this.elements.usernameInput = document.getElementById('username-input');
         this.elements.searchButton = document.getElementById('search-button');
@@ -349,6 +372,33 @@ class Dashboard {
         });
 
         console.log('All categories collapsed');
+    }
+
+    /**
+     * Update day button state based on current selection
+     */
+    updateDayButtonState() {
+        // Remove selected state from all day buttons
+        this.elements.dayButtons.forEach(button => {
+            button.classList.remove('selected', 'bg-blue-500', 'text-white');
+            button.classList.add('border-gray-300');
+        });
+        
+        // Add selected state to the appropriate button
+        if (this.selectionMode === 'quick' && this.currentDays) {
+            const targetButton = Array.from(this.elements.dayButtons).find(
+                btn => parseInt(btn.dataset.days) === this.currentDays
+            );
+            if (targetButton) {
+                targetButton.classList.add('selected', 'bg-blue-500', 'text-white');
+                targetButton.classList.remove('border-gray-300');
+            }
+        } else if (this.selectionMode === 'custom') {
+            if (this.elements.customButton) {
+                this.elements.customButton.classList.add('selected', 'bg-blue-500', 'text-white');
+                this.elements.customButton.classList.remove('border-gray-300');
+            }
+        }
     }
 
     /**
@@ -1232,13 +1282,15 @@ class Dashboard {
                 this.customRange = state.customRange || { from: null, to: null };
                 this.expandedSections = state.expandedSections || {};
                 
-                // Restore UI state
-                this.restoreUIState();
-                
                 console.log('State loaded from localStorage');
             }
+            
+            // Always restore UI state (even if no saved state, use defaults)
+            this.restoreUIState();
         } catch (error) {
             console.error('Failed to load state:', error);
+            // Even on error, restore default UI state
+            this.restoreUIState();
         }
     }
 
@@ -1320,6 +1372,56 @@ class Dashboard {
             };
         }
     }
+
+    /**
+     * Set up tab switching listeners
+     */
+    setupTabListeners() {
+        const tabButtons = document.querySelectorAll('.tab-button');
+        
+        tabButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                const tab = button.dataset.tab;
+                this.switchTab(tab);
+            });
+        });
+        
+        console.log('Tab listeners set up successfully');
+    }
+
+    /**
+     * Switch between tabs
+     * @param {string} tab - Tab to switch to ('individual' or 'team')
+     */
+    switchTab(tab) {
+        if (tab === this.currentTab) return;
+        
+        this.currentTab = tab;
+        
+        // Update tab buttons
+        const tabButtons = document.querySelectorAll('.tab-button');
+        tabButtons.forEach(button => {
+            const buttonTab = button.dataset.tab;
+            if (buttonTab === tab) {
+                button.classList.add('border-blue-500', 'text-blue-600', 'bg-blue-50');
+                button.classList.remove('border-transparent', 'text-gray-600');
+            } else {
+                button.classList.remove('border-blue-500', 'text-blue-600', 'bg-blue-50');
+                button.classList.add('border-transparent', 'text-gray-600');
+            }
+        });
+        
+        // Update views
+        if (tab === 'individual') {
+            this.elements.individualView.classList.remove('hidden');
+            this.elements.teamView.classList.add('hidden');
+        } else {
+            this.elements.individualView.classList.add('hidden');
+            this.elements.teamView.classList.remove('hidden');
+        }
+        
+        console.log(`Switched to ${tab} tab`);
+    }
 }
 
 /**
@@ -1332,4 +1434,3 @@ document.addEventListener('DOMContentLoaded', () => {
     // Make dashboard available globally for debugging
     window.dashboard = dashboard;
 });
-
