@@ -279,6 +279,7 @@ query($searchQuery: String!, $pageSize: Int = 100, $cursor: String) {
             author { login }
             createdAt
             state
+            url
           }
         }
         
@@ -437,7 +438,8 @@ def _check_pr_engagement(pr: Dict, team_members: set[str], debug: bool = False) 
         if author in team_members:
             if debug:
                 review_state = review.get("state", "")
-                print(f"PR #{pr_number}: engagement='review', actor='{author}', state='{review_state}'")
+                review_url = review.get("url", "")
+                print(f"PR #{pr_number}: engagement='review', actor='{author}', state='{review_state}', url='{review_url}'")
             return True
     
     return False
