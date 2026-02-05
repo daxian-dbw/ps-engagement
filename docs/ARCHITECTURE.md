@@ -1,11 +1,18 @@
 # GitHub Maintainer Activity Dashboard - Architecture Document
 
-**Version:** 1.3
-**Last Updated:** February 3, 2026
-**Status:** Phase 1 Complete - Production Ready with Timezone Support
-**Purpose:** Internal tool for tracking maintainer contributions to PowerShell repository
+**Version:** 1.4
+**Last Updated:** February 4, 2026
+**Status:** Phase 1 Complete + Team Engagement Feature - Production Ready
+**Purpose:** Internal tool for tracking individual maintainer contributions and team engagement metrics for PowerShell repository
 
 **Recent Updates:**
+- **v1.4 (Feb 4, 2026):** Implemented team engagement metrics dashboard
+  - New `/api/team-engagement` endpoint for team and contributor engagement data
+  - Tab-based UI: "Individual Activity" and "Team Engagement" views
+  - Parallel queries for PS_TEAM_MEMBERS and PS_CONTRIBUTORS
+  - Metrics cards with bar charts (Chart.js) for issues and PRs
+  - Distinct color coding: purple for team, orange for contributors
+  - New JavaScript component: `team-engagement.js`
 - **v1.3 (Feb 3, 2026):** Implemented timezone-aware date handling
   - Frontend auto-detects user's timezone (IANA format) and sends with API requests
   - Backend interprets date boundaries in user's local timezone, then converts to UTC
@@ -31,6 +38,7 @@
 - Flask application with modular structure
 - `/api/health` endpoint for health checks
 - `/api/metrics` endpoint with custom date range support
+- `/api/team-engagement` endpoint for team engagement metrics
 - **Date Range Features:**
   - Accepts `from_date` and `to_date` in YYYY-MM-DD format
   - Accepts optional `timezone` parameter (IANA timezone name, default: "UTC")
@@ -44,16 +52,25 @@
 
 **Frontend:**
 - Single-page application with vanilla JavaScript
-- Search interface with username input
-- Time period selection (1, 3, 7, 14, 30, 60, 90, 180 days)
+- **Tab-based UI:**
+  - "Individual Activity" tab: User-specific contributions
+  - "Team Engagement" tab: Team and contributor engagement metrics
+- **Individual Activity View:**
+  - Search interface with username input
+  - Time period selection (1, 3, 7, 14, 30, 60, 90, 180 days)
+  - Four main activity categories with collapsible UI
+  - Sub-sections for Issue Triage and Code Reviews
+- **Team Engagement View:**
+  - Date range selection (quick select or custom)
+  - Metrics cards for issues and PRs (total, team engaged, contributors engaged, closed/finished)
+  - Horizontal bar charts using Chart.js for visualization
+  - Distinct color coding: purple (team), orange (contributors), blue (total), green (PRs)
+  - Parallel API queries for PS_TEAM_MEMBERS and PS_CONTRIBUTORS
 - **Timezone-Aware Date Handling:**
   - Auto-detects user's timezone using Intl.DateTimeFormat API
   - Sends timezone parameter with all API requests
   - Displays date ranges in user's local timezone
   - Converts days to `from_date`/`to_date` before API calls
-- Four main activity categories with collapsible UI
-- Sub-sections for Issue Triage (Comments, Labeled, Closed)
-- Sub-sections for Code Reviews (Comments, Reviews, Merged, Closed)
 - Loading states and error messaging
 - State persistence via localStorage
 - Responsive design with Tailwind CSS
@@ -95,8 +112,8 @@
 ### ⏳ Planned Features (Phase 2+)
 - Response caching (SQLite/Redis)
 - Export to CSV/PDF
-- Team engagement overview
 - Activity trend charts
+- Email digest subscriptions
 
 ---
 
@@ -185,6 +202,7 @@ Users can now select dates in their local timezone and see contributions correct
 |------------|---------|------------|
 | **Flask** | Backend framework | • Already using Python<br>• Lightweight and simple<br>• Easy to integrate with existing code<br>• Excellent for internal tools |
 | **Vanilla JavaScript** | Frontend interactivity | • No build step required<br>• Easy to debug and maintain<br>• Sufficient for collapsible UI<br>• Can add Alpine.js later if needed |
+| **Chart.js** | Data visualization | • Horizontal bar charts for team metrics<br>• Lightweight and responsive<br>• CDN-based, no build step<br>• Good documentation |
 | **Tailwind CSS** (CDN) | Styling | • Rapid UI development<br>• Consistent design system<br>• No build step with CDN<br>• Easy to customize |
 | **GitHub GraphQL API** | Data source | Already implemented |
 | **SQLite** (Future) | Caching layer | • File-based, no separate server<br>• Good for internal tools |
@@ -228,11 +246,12 @@ ps-engagement/
 │
 ├── static/                     # Static assets
 │   ├── css/
-│   │   └── style.css           # Custom styles (minimal)
+│   │   └── style.css           # Custom styles (tabs, colors)
 │   ├── js/
-│   │   ├── app.js              # Main application logic
-│   │   ├── api-client.js       # API interaction layer
-│   │   └── ui-components.js    # Collapsible sections, cards
+│   │   ├── app.js              # Main application logic with tab switching
+│   │   ├── api-client.js       # API interaction layer (metrics + team engagement)
+│   │   ├── ui-components.js    # Collapsible sections, cards
+│   │   └── team-engagement.js  # Team engagement component
 │   └── favicon.ico
 │
 ├── templates/                  # Jinja2 templates
@@ -427,15 +446,97 @@ GET /api/metrics?user=daxian-dbw&from_date=2026-01-26&to_date=2026-02-02&timezon
 
 ---
 
+#### 3. **GET /api/team-engagement**
+Fetch team engagement metrics for issues and pull requests.
+
+**Query Parameters:**
+- `from_date` (required): Start date in YYYY-MM-DD format
+- `to_date` (required): End date in YYYY-MM-DD format
+- `timezone` (optional, default="UTC"): IANA timezone name
+- `owner` (optional, default=PowerShell): Repository owner
+- `repo` (optional, default=PowerShell): Repository name
+
+**Request Example:**
+```
+GET /api/team-engagement?from_date=2026-01-28&to_date=2026-02-03&timezone=America/Los_Angeles
+```
+
+**Response Structure:**
+```json
+{
+  "team": {
+    "issue": {
+      "total_issues": 6,
+      "team_engaged": 4,
+      "team_unattended": 2,
+      "engagement_ratio": 0.67,
+      "manually_closed": 3,
+      "pr_triggered_closed": 0,
+      "closed_ratio": 0.5,
+      "engaged_issues": [...],
+      "unattended_issues": [...],
+      "manually_closed_issues": [...],
+      "pr_triggered_closed_issues": [...]
+    },
+    "pr": {
+      "total_prs": 8,
+      "team_engaged": 2,
+      "team_unattended": 6,
+      "engagement_ratio": 0.25,
+      "merged": 2,
+      "closed": 0,
+      "finish_ratio": 0.25,
+      "engaged_prs": [...],
+      "unattended_prs": [...],
+      "merged_prs": [...],
+      "closed_prs": [...]
+    }
+  },
+  "contributors": {
+    "issue": { /* same structure as team.issue */ },
+    "pr": { /* same structure as team.pr */ }
+  },
+  "meta": {
+    "from_date": "2026-01-28",
+    "to_date": "2026-02-03",
+    "timezone": "America/Los_Angeles",
+    "repository": "PowerShell/PowerShell",
+    "timestamp": "2026-02-04T10:30:00Z"
+  }
+}
+```
+
+**Engagement Criteria:**
+- **Issues:** Team member commented, applied Resolution-* label, or closed the issue
+- **PRs:** Team member commented, reviewed, merged, or closed the PR
+
+**Implementation Details:**
+- Queries `PS_TEAM_MEMBERS` and `PS_CONTRIBUTORS` in parallel using ThreadPoolExecutor
+- Uses `get_team_engagement()` from `github_events` module
+- Returns engagement data for both groups to compare team vs contributor engagement
+
+**Status Codes:**
+- 200: Success
+- 400: Bad request (same error codes as `/api/metrics`)
+- 500: Server error
+
+---
+
 ## Frontend Design
 
 ### Page Layout
 
+**Main Dashboard with Tabs:**
 ```
 ┌─────────────────────────────────────────────────────┐
 │  GitHub Maintainer Activity Dashboard               │
 ├─────────────────────────────────────────────────────┤
-│                                                     │
+│  [👤 Individual Activity]  [👥 Team Engagement]     │
+├─────────────────────────────────────────────────────┤
+```
+
+**Individual Activity Tab (Default):**
+```
 │  ┌────────────────────────────────────────────┐     │
 │  │  Search Panel                              │     │
 │  │  ┌──────────────────┐  ┌──────┐            │     │
@@ -453,11 +554,32 @@ GET /api/metrics?user=daxian-dbw&from_date=2026-01-26&to_date=2026-02-02&timezon
 │     [Expanded: shows list of issues]                │
 │                                                     │
 │  ▶ 🚀 Pull Requests Opened (2)                      │
-│                                                     │
 │  ▶ 🔧 Issue Triage & Investigation (12)             │
-│                                                     │
 │  ▶ 👀 Code Reviews (6)                              │
+└─────────────────────────────────────────────────────┘
+```
+
+**Team Engagement Tab:**
+```
+│  ┌────────────────────────────────────────────┐     │
+│  │  Query Team Engagement Metrics             │     │
+│  │  Days: [1][3][7][14][30][Custom]  ┌──────┐ │     │
+│  │                                   │  Go  │ │     │
+│  │                                   └──────┘ │     │
+│  └────────────────────────────────────────────┘     │
 │                                                     │
+│  📝 ISSUES                                          │
+│  ┌──────────────┐  ┌──────────────┐                │
+│  │📊 Total: 6   │  │✅ Closed: 3  │                │
+│  └──────────────┘  └──────────────┘                │
+│  ┌──────────────┐  ┌──────────────┐                │
+│  │🎯 Team: 4    │  │🤝 Contrib: 5 │                │
+│  │   (67%)      │  │    (83%)     │                │
+│  └──────────────┘  └──────────────┘                │
+│  [Bar Chart Visualization]                          │
+│                                                     │
+│  🚀 PULL REQUESTS                                   │
+│  [Similar layout to Issues]                         │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -829,11 +951,19 @@ def test_no_github_token_leakage():
   - Frontend converts days to date ranges transparently
   - Comprehensive date validation (format, range, future dates, max 200 days)
   - Date range metadata in ISO 8601 format
+- ✅ **Timezone-aware date handling:**
+  - Auto-detects user's timezone and sends with API requests
+  - Backend interprets dates in user's timezone
+- ✅ **Team engagement dashboard:**
+  - Tab-based UI (Individual Activity vs Team Engagement)
+  - Parallel queries for PS_TEAM_MEMBERS and PS_CONTRIBUTORS
+  - Metrics cards with bar chart visualizations (Chart.js)
+  - Issues and PRs engagement tracking
 - ✅ Comprehensive error handling and validation
 - ✅ Time period selection (1, 3, 7, 14, 30, 60, 90, 180 days)
 - ✅ Security: Error message sanitization
 - ✅ State persistence via localStorage
-- ✅ **Comprehensive test coverage (66 automated tests)**
+- ✅ **Comprehensive test coverage (77 automated tests)**
 
 ### Phase 2 - Enhanced Features (3-6 months)
 - Response caching (SQLite)
@@ -841,11 +971,11 @@ def test_no_github_token_leakage():
 - Dark mode toggle
 - Share link functionality
 - Activity timeline view (chronological list)
+- Detailed drill-down lists for team engagement (engaged/unattended issues/PRs)
 
-### Phase 3 - Team Features (6-12 months)
+### Phase 3 - Advanced Features (6-12 months)
 - Multi-user comparison
-- Team dashboard (aggregate stats)
-- Activity trend charts (Chart.js)
+- Activity trend charts over time
 - Email digest subscriptions
 - Slack/Teams integration
 
@@ -893,8 +1023,12 @@ pytest-mock>=3.12.0
 <!-- Tailwind CSS -->
 <script src="https://cdn.tailwindcss.com"></script>
 
-<!-- Optional: Alpine.js (if needed for complex interactions) -->
-<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+<!-- Chart.js (for team engagement visualizations) -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+
+<!-- Flatpickr (for date pickers) -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 ```
 
 ---
@@ -1052,6 +1186,7 @@ curl "http://localhost:5001/api/metrics?user=daxian-dbw&from_date=2025-12-01&to_
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
+| 1.4 | 2026-02-04 | GitHub Copilot | **Team Engagement Feature**<br>• Added `/api/team-engagement` endpoint documentation<br>• Tab-based UI: Individual Activity and Team Engagement<br>• Parallel queries for PS_TEAM_MEMBERS and PS_CONTRIBUTORS<br>• Chart.js integration for bar chart visualizations<br>• Updated project structure with new files<br>• Updated test count: 77 tests<br>• Color-coded metrics (purple for team, orange for contributors) |
 | 1.0 | 2026-01-20 | GitHub Copilot | Initial architecture document |
 | 1.1 | 2026-01-23 | GitHub Copilot | Updated to reflect actual implementation<br>• Corrected API response formats<br>• Added security documentation<br>• Added test coverage details<br>• Updated phase completion status<br>• Added implementation status section |
 | 1.2 | 2026-02-02 | GitHub Copilot | **Custom Date Range Feature**<br>• Changed API from `days` to `from_date`/`to_date` parameters<br>• Added comprehensive date validation documentation<br>• Updated test coverage: 28 → 66 tests<br>• Added date range constraints and error codes<br>• Updated all examples and queries<br>• Documented frontend date conversion logic |
@@ -1062,25 +1197,27 @@ curl "http://localhost:5001/api/metrics?user=daxian-dbw&from_date=2025-12-01&to_
 
 **For AI assistants working on this codebase:**
 
-This is a Flask-based web dashboard that queries GitHub GraphQL API to display maintainer activity metrics. The application is structured as follows:
+This is a Flask-based web dashboard with two main views: (1) Individual maintainer activity metrics, and (2) Team engagement metrics. Both query GitHub GraphQL API. The application is structured as follows:
 
 **Key Files:**
 - `app.py` - Flask app initialization and main routes
-- `api/routes.py` - API endpoints (`/api/health`, `/api/metrics`) with date range validation
+- `api/routes.py` - API endpoints (`/api/health`, `/api/metrics`, `/api/team-engagement`)
 - `api/response_formatter.py` - Transforms GitHub data to frontend format
-- `github_events/github_events.py` - GitHub GraphQL API integration
-- `static/js/app.js` - Main frontend controller
-- `static/js/api-client.js` - API communication layer (converts days to dates)
+- `github_events/github_events.py` - GitHub GraphQL API integration (includes `get_team_engagement()`)
+- `static/js/app.js` - Main frontend controller with tab switching
+- `static/js/team-engagement.js` - Team engagement component
+- `static/js/api-client.js` - API communication layer (metrics + team engagement)
 - `static/js/ui-components.js` - UI component generators
+- `templates/index.html` - Tab-based UI structure
 - `tests/conftest.py` - Test fixtures for date ranges
 
-**Data Flow:**
+**Data Flow (Individual Activity):**
 1. User enters GitHub username and selects time period (days)
 2. **Frontend converts days to date range:**
-   - `toDate = today`
-   - `fromDate = today - days`
+   - `toDate = yesterday` (to avoid timezone issues)
+   - `fromDate = toDate - days`
    - Formats as YYYY-MM-DD
-3. Frontend sends GET request to `/api/metrics?user=X&from_date=YYYY-MM-DD&to_date=YYYY-MM-DD`
+3. Frontend sends GET request to `/api/metrics?user=X&from_date=YYYY-MM-DD&to_date=YYYY-MM-DD&timezone=USER_TZ`
 4. **Backend validates dates:**
    - Required: both `from_date` and `to_date`
    - Format: YYYY-MM-DD (parsed with `datetime.strptime`)
@@ -1091,6 +1228,20 @@ This is a Flask-based web dashboard that queries GitHub GraphQL API to display m
 6. GitHub data is fetched via GraphQL, formatted by `response_formatter`
 7. JSON response returned with structure: `{meta, summary, data}`
 8. Frontend renders collapsible categories with sub-sections
+
+**Data Flow (Team Engagement):**
+1. User selects time period in Team Engagement tab
+2. Frontend converts days to date range (same as individual activity)
+3. Frontend sends GET request to `/api/team-engagement?from_date=YYYY-MM-DD&to_date=YYYY-MM-DD&timezone=USER_TZ`
+4. **Backend makes parallel queries:**
+   - Calls `get_team_engagement(from_date, to_date, PS_TEAM_MEMBERS, ...)`
+   - Calls `get_team_engagement(from_date, to_date, PS_CONTRIBUTORS, ...)`
+   - Both run in ThreadPoolExecutor for performance
+5. Backend returns engagement data for both team and contributors
+6. Frontend renders:
+   - Metrics cards (total, team engaged, contributors engaged, closed/finished)
+   - Horizontal bar charts using Chart.js
+   - Color-coded: purple (team), orange (contributors)
 
 **API Response Structure:**
 - `meta.period` - Contains `days` (calculated), `start` (ISO), `end` (ISO)
@@ -1127,7 +1278,7 @@ This is a Flask-based web dashboard that queries GitHub GraphQL API to display m
 - Required: `GITHUB_TOKEN`
 - Optional: `GITHUB_OWNER`, `GITHUB_REPO`, `DEFAULT_DAYS_BACK`, `CACHE_TTL_MINUTES`
 
-**Current Phase:** Phase 1 complete with custom date range support, 66/66 tests passing, ready for deployment
+**Current Phase:** Phase 1 complete with custom date range support and team engagement dashboard, 77/77 tests passing, ready for deployment
 
 **Important Implementation Details:**
 - **Date Parameters:** API requires `from_date` and `to_date` (YYYY-MM-DD), NOT `days`

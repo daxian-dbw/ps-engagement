@@ -31,7 +31,7 @@
         <!-- Search Panel -->
         <div class="bg-white rounded-b-lg shadow-md p-6 mb-6">
         <h2 class="text-xl font-semibold text-gray-800 mb-4">
-            Search GitHub User Activity
+            🔍 Search GitHub User Activity
         </h2>
         
         <!-- Error Message Container (Hidden by default) -->
@@ -586,7 +586,7 @@
                         </div>
                         
                         <!-- Closed Issues -->
-                        <div class="bg-gray-50 rounded-lg p-4 border-2 border-gray-300">
+                        <div class="bg-gray-50 rounded-lg p-4 border-2 border-gray-300 cursor-pointer hover:bg-gray-100 transition-colors" data-detail-view="issues-closed">
                             <div class="flex items-center mb-2">
                                 <span class="text-xl mr-2">✅</span>
                                 <span class="text-gray-700 font-semibold">Closed Issues</span>
@@ -602,7 +602,7 @@
                     <!-- Second Row: Team and Contributors Engagement -->
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                         <!-- Team Engagement -->
-                        <div class="bg-purple-50 rounded-lg p-4 border-2 border-purple-300">
+                        <div class="bg-purple-50 rounded-lg p-4 border-2 border-purple-300 cursor-pointer hover:bg-purple-100 transition-colors" data-detail-view="issues-team-engaged">
                             <div class="flex items-center mb-2">
                                 <span class="text-xl mr-2">🎯</span>
                                 <span class="text-gray-700 font-semibold">Team Engaged</span>
@@ -614,7 +614,7 @@
                         </div>
                         
                         <!-- Contributors Engagement -->
-                        <div class="bg-orange-50 rounded-lg p-4 border-2 border-orange-300">
+                        <div class="bg-orange-50 rounded-lg p-4 border-2 border-orange-300 cursor-pointer hover:bg-orange-100 transition-colors" data-detail-view="issues-contrib-engaged">
                             <div class="flex items-center mb-2">
                                 <span class="text-xl mr-2">🤝</span>
                                 <span class="text-gray-700 font-semibold">Contributors Engaged</span>
@@ -653,7 +653,7 @@
                         </div>
                         
                         <!-- Finished PRs -->
-                        <div class="bg-gray-50 rounded-lg p-4 border-2 border-gray-300">
+                        <div class="bg-gray-50 rounded-lg p-4 border-2 border-gray-300 cursor-pointer hover:bg-gray-100 transition-colors" data-detail-view="prs-finished">
                             <div class="flex items-center mb-2">
                                 <span class="text-xl mr-2">✅</span>
                                 <span class="text-gray-700 font-semibold">Finished PRs</span>
@@ -669,7 +669,7 @@
                     <!-- Second Row: Team and Contributors Engagement -->
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                         <!-- Team Engagement -->
-                        <div class="bg-purple-50 rounded-lg p-4 border-2 border-purple-300">
+                        <div class="bg-purple-50 rounded-lg p-4 border-2 border-purple-300 cursor-pointer hover:bg-purple-100 transition-colors" data-detail-view="prs-team-engaged">
                             <div class="flex items-center mb-2">
                                 <span class="text-xl mr-2">🎯</span>
                                 <span class="text-gray-700 font-semibold">Team Engaged</span>
@@ -681,7 +681,7 @@
                         </div>
                         
                         <!-- Contributors Engagement -->
-                        <div class="bg-orange-50 rounded-lg p-4 border-2 border-orange-300">
+                        <div class="bg-orange-50 rounded-lg p-4 border-2 border-orange-300 cursor-pointer hover:bg-orange-100 transition-colors" data-detail-view="prs-contrib-engaged">
                             <div class="flex items-center mb-2">
                                 <span class="text-xl mr-2">🤝</span>
                                 <span class="text-gray-700 font-semibold">Contributors Engaged</span>
@@ -712,6 +712,25 @@
                         </div>
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Detail View Modal -->
+    <div id="detail-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
+            <!-- Modal Header -->
+            <div class="flex items-center justify-between p-6 border-b border-gray-200">
+                <h3 id="detail-modal-title" class="text-2xl font-bold text-gray-800"></h3>
+                <button id="detail-modal-close" class="text-gray-400 hover:text-gray-600 transition-colors">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+            <!-- Modal Content -->
+            <div id="detail-modal-content" class="flex-1 overflow-y-auto p-6">
+                <!-- Content will be populated by JavaScript -->
             </div>
         </div>
     </div>

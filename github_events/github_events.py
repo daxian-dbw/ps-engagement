@@ -262,6 +262,9 @@ query($searchQuery: String!, $pageSize: Int = 100, $cursor: String) {
         author {
           login
         }
+        mergedBy {
+          login
+        }
         state
         
         comments(first: 100) {
@@ -1075,6 +1078,7 @@ def get_team_issue_engagement(
                     "number": issue.get("number"),
                     "title": issue.get("title"),
                     "url": issue.get("url"),
+                    "created_at": issue.get("createdAt"),
                     "closed_by": actor
                 }
                 
@@ -1183,6 +1187,8 @@ def get_team_pr_engagement(
     
     for pr in all_prs:
         is_engaged = _check_pr_engagement(pr, team_members, debug)
+        pr_state = pr.get("state")
+        merged_by = pr.get("mergedBy")
         
         pr_info = {
             "number": pr.get("number"),
@@ -1190,7 +1196,8 @@ def get_team_pr_engagement(
             "url": pr.get("url"),
             "created_at": pr.get("createdAt"),
             "author": pr.get("author", {}).get("login"),
-            "state": pr.get("state")
+            "state": pr_state,
+            "merged_by": merged_by.get("login") if merged_by else None
         }
         
         if is_engaged:
@@ -1199,10 +1206,9 @@ def get_team_pr_engagement(
             unattended_prs.append(pr_info)
         
         # Check PR state to categorize merged vs closed, by anyone
-        state = pr.get("state")
-        if state == "MERGED":
+        if pr_state == "MERGED":
             merged_prs.append(pr_info)
-        elif state == "CLOSED":
+        elif pr_state == "CLOSED":
             closed_prs.append(pr_info)
     
     total = len(all_prs)
