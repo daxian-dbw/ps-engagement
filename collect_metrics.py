@@ -298,12 +298,13 @@ def main(user: str = DEFAULT_USER, days_back: int = DEFAULT_DAYS_BACK):
     print(f"Collecting GitHub activity for {user} over the past {days_back} days...")
 
     to_date = datetime.utcnow()
-    from_date = to_date - timedelta(days_back)
+    # from_date = to_date - timedelta(days_back)
+    from_date = to_date.replace(hour=0, minute=0, second=0)
 
     # _validate_individual_functions(user, from_date, to_date)
-    _validate_contributions_by(user, from_date, to_date)
+    # _validate_contributions_by(user, from_date, to_date)
     # _validate_get_team_issue_engagement(from_date, to_date, debug=True)
-    # _validate_get_team_pr_engagement(from_date, to_date, debug=True)
+    _validate_get_team_pr_engagement(from_date, to_date, debug=True)
     # _valdiate_get_team_engagement(from_date, to_date, debug=True)
 
 

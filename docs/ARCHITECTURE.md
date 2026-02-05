@@ -6,6 +6,13 @@
 **Purpose:** Internal tool for tracking individual maintainer contributions and team engagement metrics for PowerShell repository
 
 **Recent Updates:**
+- **v1.6 (Feb 5, 2026):** Added Copy Summary feature for Individual Activity
+  - **Copy to Clipboard button:** One-click button in Activity Summary section
+  - **Plain text format:** Generates compact YAML-like summary with username, date range, and activity counts
+  - **Smart filtering:** Only includes categories and subcategories with non-zero counts
+  - **Visual feedback:** Green toast notification confirms successful copy
+  - **Clipboard API:** Uses modern `navigator.clipboard.writeText()` for reliable copying
+  - **Data structure:** Accesses subcategory counts from `data.issue_triage` and `data.code_reviews` arrays
 - **v1.5 (Feb 4, 2026):** Enhanced team engagement with detail view modals
   - **Interactive metric cards:** Click on 6 metric cards to view detailed lists
   - **Modal overlays:** Show lists of issues/PRs with status, dates, and actors
@@ -64,8 +71,14 @@
 - **Individual Activity View:**
   - Search interface with username input
   - Time period selection (1, 3, 7, 14, 30, 60, 90, 180 days)
+  - Custom date range picker with validation
   - Four main activity categories with collapsible UI
   - Sub-sections for Issue Triage and Code Reviews
+  - **Copy Summary button:** Generates and copies plain text summary to clipboard
+    - Compact format showing only non-zero activity counts
+    - Includes username, date range, and total actions
+    - Shows subcategory breakdowns (comments, labeled, closed, reviews, merged)
+    - Toast notification for copy confirmation
 - **Team Engagement View:**
   - Date range selection (quick select or custom)
   - Metrics cards for issues and PRs (total, team engaged, contributors engaged, closed/finished)
@@ -632,6 +645,27 @@ Six metric cards are clickable to show detailed modal views:
 - Breakdown by category
 - Time period display
 - Timestamp of data fetch
+- **Copy Summary button** with clipboard icon
+  - Positioned in top-right corner of Activity Summary section
+  - Generates plain text summary format:
+    ```
+    GitHub Activity: username (YYYY-MM-DD to YYYY-MM-DD)
+    Total: X actions
+
+    Issues Opened: X
+    Pull Requests Opened: X
+    Issue Triage & Investigation: X
+      - Comments: X
+      - Labeled: X
+      - Closed: X
+    Code Reviews: X
+      - Reviews: X
+      - Comments: X
+      - Merged: X
+      - Closed: X
+    ```
+  - Only includes categories/subcategories with counts > 0
+  - Shows toast notification on successful copy
 
 #### 3. Collapsible Category Sections
 **Structure for each category:**
@@ -713,9 +747,40 @@ class ItemCard {
 **3. app.js** - Main application logic
 ```javascript
 class Dashboard {
+  constructor() {
+    this.lastData = null;  // Store last API response for copy functionality
+    // ... other properties
+  }
+  
   init() { ... }
-  loadData(user, days) { ... }
+  loadData(user, days) { 
+    // Stores response in this.lastData
+  }
   renderCategories(data) { ... }
+  
+  // Copy Summary feature methods
+  generateTextSummary(data) {
+    // Generates plain text from data
+    // Accesses subcategories from data.issue_triage and data.code_reviews arrays
+    // Returns formatted string with only non-zero counts
+  }
+  
+  async copyToClipboard(text) {
+    // Uses navigator.clipboard.writeText() API
+    // Calls showCopyNotification() for feedback
+  }
+  
+  showCopyNotification(success) {
+    // Creates toast notification element
+    // Shows green success or red error message
+    // Auto-removes after 3 seconds with fade animation
+  }
+  
+  handleCopySummaryClick() {
+    // Event handler for copy button
+    // Generates text and copies to clipboard
+  }
+  
   showLoading() { ... }
   showError(message) { ... }
 }

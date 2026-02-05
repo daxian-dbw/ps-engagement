@@ -5,13 +5,15 @@ A web dashboard for visualizing GitHub maintainer activity across issues, pull r
 ## Features
 
 - **Single User Search**: Search for any GitHub user's activity in a repository
-- **Time Period Selection**: View activity over 1, 3, 7, 14, 30, 90, or 180 days
+- **Time Period Selection**: View activity over 1, 3, 7, 14, 30 days, or a custom date range
+- **Custom Date Range**: Select any date range within the last 200 days
 - **Timezone-Aware**: Automatically detects your timezone and interprets date boundaries correctly
 - **Four Activity Categories**:
   - 📝 Issues Opened
   - 🚀 Pull Requests Opened
   - 🔧 Issue Triage & Investigation (comments, labels, closures)
   - 👀 Code Reviews (comments, reviews, PR merges/closures)
+- **Copy Summary**: One-click copy of activity summary in plain text format for easy sharing
 - **Collapsible UI**: Expand/collapse categories for better organization
 - **Persistent State**: Remembers your search preferences across sessions
 
@@ -89,9 +91,10 @@ A web dashboard for visualizing GitHub maintainer activity across issues, pull r
 
 4. **Use the dashboard**
    - Enter a GitHub username in the search box
-   - Select a time period (default is 7 days)
+   - Select a time period (default is 7 days) or choose a custom date range
    - Click "Go" to view activity
    - Click category headers to expand/collapse details
+   - Click "Copy Summary" button to copy the activity summary to clipboard for sharing
 
 ## Troubleshooting
 

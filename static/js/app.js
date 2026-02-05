@@ -17,6 +17,8 @@ class Dashboard {
         this.customRange = { from: null, to: null }; // ISO date strings
         this.expandedSections = {};
         this.currentTab = 'individual'; // 'individual' or 'team'
+        this.lastData = null; // Store last API response for copy functionality
+        this.lastData = null; // Store last API response for copy functionality
         
         // Cache DOM elements
         this.elements = {
@@ -129,6 +131,7 @@ class Dashboard {
         this.elements.countIssueTriage = document.getElementById('count-issue-triage');
         this.elements.countCodeReviews = document.getElementById('count-code-reviews');
         this.elements.categoriesContainer = document.getElementById('categories-container');
+        this.elements.copySummaryBtn = document.getElementById('copy-summary-btn');
     }
 
     /**
@@ -196,6 +199,13 @@ class Dashboard {
         if (this.elements.customButton) {
             this.elements.customButton.addEventListener('click', () => {
                 this.handleCustomButtonClick();
+            });
+        }
+        
+        // Copy summary button click
+        if (this.elements.copySummaryBtn) {
+            this.elements.copySummaryBtn.addEventListener('click', () => {
+                this.handleCopySummaryClick();
             });
         }
         
@@ -491,6 +501,19 @@ class Dashboard {
     }
 
     /**
+     * Handle copy summary button click
+     */
+    handleCopySummaryClick() {
+        if (!this.lastData) {
+            console.warn('No data available to copy');
+            return;
+        }
+
+        const textSummary = this.generateTextSummary(this.lastData);
+        this.copyToClipboard(textSummary);
+    }
+
+    /**
      * Show custom date picker
      */
     showCustomDatePicker() {
@@ -571,9 +594,9 @@ class Dashboard {
         const today = new Date();
         today.setHours(23, 59, 59, 999);
         
-        // Check if from < to
-        if (from >= to) {
-            this.showDateRangeError('From date must be before to date');
+        // Check if from <= to
+        if (from > to) {
+            this.showDateRangeError('From date must be before or equal to to date');
             return false;
         }
         
@@ -678,6 +701,9 @@ class Dashboard {
             
             console.log('Data loaded successfully:', data);
             
+            // Store data for copy functionality
+            this.lastData = data;
+            
             // Update state
             this.currentUser = user;
             this.saveState();
@@ -713,6 +739,9 @@ class Dashboard {
             const data = await this.apiClient.fetchMetrics(user, days);
             
             console.log('Data loaded successfully:', data);
+            
+            // Store data for copy functionality
+            this.lastData = data;
             
             // Update state
             this.currentUser = user;
@@ -1371,6 +1400,151 @@ class Dashboard {
                 days: this.currentDays || 7
             };
         }
+    }
+
+    /**
+     * Generate a plain text summary of the activity data
+     * @param {Object} data - API response data
+     * @returns {string} Plain text summary in YAML-like format
+     */
+    generateTextSummary(data) {
+        if (!data || !data.summary) {
+            return 'No activity data available';
+        }
+
+        const summary = data.summary;
+        const meta = data.meta || {};
+        const byCategory = summary.by_category || {};
+        const categories = data.data || {};
+
+        // Get date range
+        const startDate = meta.period?.start;
+        const endDate = meta.period?.end;
+        let dateRangeStr = '';
+        if (startDate && endDate) {
+            const from = this.formatDateForInput(new Date(startDate));
+            const to = this.formatDateForInput(new Date(endDate));
+            dateRangeStr = ` (${from} to ${to})`;
+        }
+
+        let text = '';
+        text += `GitHub Activity: ${meta.user || 'Unknown'}${dateRangeStr}\n`;
+        text += `Total: ${summary.total_actions || 0} actions\n`;
+        text += `\n`;
+
+        // Issues Opened
+        const issuesOpened = byCategory.issues_opened || 0;
+        if (issuesOpened > 0) {
+            text += `Issues Opened: ${issuesOpened}\n`;
+        }
+
+        // Pull Requests Opened
+        const prsOpened = byCategory.prs_opened || 0;
+        if (prsOpened > 0) {
+            text += `Pull Requests Opened: ${prsOpened}\n`;
+        }
+
+        // Issue Triage & Investigation
+        const issueTriage = byCategory.issue_triage || 0;
+        if (issueTriage > 0) {
+            text += `Issue Triage & Investigation: ${issueTriage}\n`;
+            
+            // Get subcategories from data.issue_triage
+            const issueTriageData = categories.issue_triage || {};
+            const comments = (issueTriageData.comments || []).length;
+            const labeled = (issueTriageData.labeled || []).length;
+            const closed = (issueTriageData.closed || []).length;
+            
+            if (comments > 0) {
+                text += `  - Comments: ${comments}\n`;
+            }
+            if (labeled > 0) {
+                text += `  - Labeled: ${labeled}\n`;
+            }
+            if (closed > 0) {
+                text += `  - Closed: ${closed}\n`;
+            }
+        }
+
+        // Code Reviews
+        const codeReviews = byCategory.code_reviews || 0;
+        if (codeReviews > 0) {
+            text += `Code Reviews: ${codeReviews}\n`;
+            
+            // Get subcategories from data.code_reviews
+            const codeReviewsData = categories.code_reviews || {};
+            const reviews = (codeReviewsData.reviews || []).length;
+            const comments = (codeReviewsData.comments || []).length;
+            const merged = (codeReviewsData.merged || []).length;
+            const closed = (codeReviewsData.closed || []).length;
+            
+            if (reviews > 0) {
+                text += `  - Reviews: ${reviews}\n`;
+            }
+            if (comments > 0) {
+                text += `  - Comments: ${comments}\n`;
+            }
+            if (merged > 0) {
+                text += `  - Merged: ${merged}\n`;
+            }
+            if (closed > 0) {
+                text += `  - Closed: ${closed}\n`;
+            }
+        }
+
+        return text;
+    }
+
+    /**
+     * Copy text to clipboard and show notification
+     * @param {string} text - Text to copy
+     */
+    async copyToClipboard(text) {
+        try {
+            await navigator.clipboard.writeText(text);
+            this.showCopyNotification(true);
+        } catch (err) {
+            console.error('Failed to copy to clipboard:', err);
+            this.showCopyNotification(false);
+        }
+    }
+
+    /**
+     * Show a toast notification for copy action
+     * @param {boolean} success - Whether the copy was successful
+     */
+    showCopyNotification(success) {
+        // Create toast element
+        const toast = document.createElement('div');
+        toast.className = `fixed top-4 right-4 px-6 py-3 rounded-lg shadow-lg text-white font-medium transition-all duration-300 transform z-50 ${
+            success ? 'bg-green-600' : 'bg-red-600'
+        }`;
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(-20px)';
+        
+        const icon = success
+            ? '<svg class="w-5 h-5 inline-block mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>'
+            : '<svg class="w-5 h-5 inline-block mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>';
+        
+        const message = success ? 'Copied to clipboard!' : 'Failed to copy';
+        toast.innerHTML = `${icon}${message}`;
+        
+        document.body.appendChild(toast);
+        
+        // Animate in
+        setTimeout(() => {
+            toast.style.opacity = '1';
+            toast.style.transform = 'translateY(0)';
+        }, 10);
+        
+        // Animate out and remove
+        setTimeout(() => {
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateY(-20px)';
+            setTimeout(() => {
+                document.body.removeChild(toast);
+            }, 300);
+        }, 3000);
     }
 
     /**
