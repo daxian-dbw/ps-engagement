@@ -1,11 +1,17 @@
 # GitHub Maintainer Activity Dashboard - Architecture Document
 
-**Version:** 1.4
+**Version:** 1.5
 **Last Updated:** February 4, 2026
 **Status:** Phase 1 Complete + Team Engagement Feature - Production Ready
 **Purpose:** Internal tool for tracking individual maintainer contributions and team engagement metrics for PowerShell repository
 
 **Recent Updates:**
+- **v1.5 (Feb 4, 2026):** Enhanced team engagement with detail view modals
+  - **Interactive metric cards:** Click on 6 metric cards to view detailed lists
+  - **Modal overlays:** Show lists of issues/PRs with status, dates, and actors
+  - **Detailed information:** Issue/PR numbers (linked), status (color-coded), closure/merge actors
+  - **Backend enhancements:** Added `closed_at` for issues, `merged_by` for PRs in API responses
+  - **UI improvements:** Hover effects, smooth transitions, Escape key/click-outside to close
 - **v1.4 (Feb 4, 2026):** Implemented team engagement metrics dashboard
   - New `/api/team-engagement` endpoint for team and contributor engagement data
   - Tab-based UI: "Individual Activity" and "Team Engagement" views
@@ -514,6 +520,27 @@ GET /api/team-engagement?from_date=2026-01-28&to_date=2026-02-03&timezone=Americ
 - Queries `PS_TEAM_MEMBERS` and `PS_CONTRIBUTORS` in parallel using ThreadPoolExecutor
 - Uses `get_team_engagement()` from `github_events` module
 - Returns engagement data for both groups to compare team vs contributor engagement
+- **Enhanced response fields:**
+  - Issues: Added `closed_at` field to closed issues for detailed timestamps
+  - PRs: Added `merged_by` field from GraphQL `mergedBy` to show who merged each PR
+
+**Interactive Detail Views:**
+Six metric cards are clickable to show detailed modal views:
+1. **Closed Issues:** Shows manually closed vs PR-closed issues with closure actors
+2. **Team Engaged Issues:** Lists issues with team member engagement
+3. **Contributors Engaged Issues:** Lists issues with contributor engagement
+4. **Finished PRs:** Shows merged vs closed PRs with merge actors
+5. **Team Engaged PRs:** Lists PRs with team member engagement
+6. **Contributors Engaged PRs:** Lists PRs with contributor engagement
+
+**Modal Display Format:**
+- Issue/PR number (hyperlinked to GitHub)
+- Status with color coding:
+  - Issues: Orange (manually closed), Purple (closed by PR)
+  - PRs: Green (merged), Gray (closed)
+- Actor information: "by <username>"
+- Creation date
+- Modal controls: Close button, click-outside, Escape key
 
 **Status Codes:**
 - 200: Success
@@ -568,18 +595,27 @@ GET /api/team-engagement?from_date=2026-01-28&to_date=2026-02-03&timezone=Americ
 │  │                                   └──────┘ │     │
 │  └────────────────────────────────────────────┘     │
 │                                                     │
-│  📝 ISSUES                                          │
+│  📝 ISSUES (Clickable cards for detail view)        │
 │  ┌──────────────┐  ┌──────────────┐                │
-│  │📊 Total: 6   │  │✅ Closed: 3  │                │
-│  └──────────────┘  └──────────────┘                │
+│  │📊 Total: 6   │  │✅ Closed: 3  │ ← Click to see │
+│  └──────────────┘  └──────────────┘    details     │
 │  ┌──────────────┐  ┌──────────────┐                │
-│  │🎯 Team: 4    │  │🤝 Contrib: 5 │                │
-│  │   (67%)      │  │    (83%)     │                │
+│  │🎯 Team: 4    │  │🤝 Contrib: 5 │ ← Click to see │
+│  │   (67%)      │  │    (83%)     │    details     │
 │  └──────────────┘  └──────────────┘                │
 │  [Bar Chart Visualization]                          │
 │                                                     │
 │  🚀 PULL REQUESTS                                   │
 │  [Similar layout to Issues]                         │
+│                                                     │
+│  Detail View Modal (shown when card clicked):       │
+│  ┌──────────────────────────────────────────┐      │
+│  │ Closed Issues                        [X] │      │
+│  ├──────────────────────────────────────────┤      │
+│  │ #26733 Manually closed, by user   1/13/26│      │
+│  │ #26732 Closed by PR, by user      1/12/26│      │
+│  │ ...                                      │      │
+│  └──────────────────────────────────────────┘      │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -959,6 +995,7 @@ def test_no_github_token_leakage():
   - Parallel queries for PS_TEAM_MEMBERS and PS_CONTRIBUTORS
   - Metrics cards with bar chart visualizations (Chart.js)
   - Issues and PRs engagement tracking
+  - **Interactive detail views:** Click metric cards to see detailed lists in modal overlays
 - ✅ Comprehensive error handling and validation
 - ✅ Time period selection (1, 3, 7, 14, 30, 60, 90, 180 days)
 - ✅ Security: Error message sanitization
@@ -971,7 +1008,7 @@ def test_no_github_token_leakage():
 - Dark mode toggle
 - Share link functionality
 - Activity timeline view (chronological list)
-- Detailed drill-down lists for team engagement (engaged/unattended issues/PRs)
+- ✅ **Detailed drill-down lists for team engagement** (completed in v1.5)
 
 ### Phase 3 - Advanced Features (6-12 months)
 - Multi-user comparison
