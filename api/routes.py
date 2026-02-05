@@ -184,6 +184,17 @@ def get_metrics():
                 }
             }), 400
 
+        # Validate date range: from_date <= to_date
+        if from_date > to_date:
+            logger.warning(f"Invalid date range: from_date={from_date_str} > to_date={to_date_str}")
+            return jsonify({
+                'error': {
+                    'code': 'INVALID_DATE_RANGE',
+                    'message': 'From date must be before or equal to to date',
+                    'timestamp': _utc_now_iso()
+                }
+            }), 400
+
         # Validate max range (200 days)
         days_diff = (to_date - from_date).days
         if days_diff > 200:
@@ -213,17 +224,6 @@ def get_metrics():
         from_date_tz = from_date.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=user_tz)
         to_date_tz = to_date.replace(hour=23, minute=59, second=59, microsecond=0, tzinfo=user_tz)
 
-        # Validate date range: from_date <= to_date
-        if from_date > to_date:
-            logger.warning(f"Invalid date range: from_date={from_date_str} > to_date={to_date_str}")
-            return jsonify({
-                'error': {
-                    'code': 'INVALID_DATE_RANGE',
-                    'message': 'From date must be before or equal to to date',
-                    'timestamp': _utc_now_iso()
-                }
-            }), 400
-
         # Convert to UTC
         from_date = from_date_tz.astimezone(timezone.utc)
         to_date = to_date_tz.astimezone(timezone.utc)
@@ -232,7 +232,7 @@ def get_metrics():
         now = datetime.now(timezone.utc)
         if to_date > now:
             # Check if same day - if so, adjust to current time instead of erroring
-            if to_date.date() == now.date():
+            if (to_date - now).days <= 1:
                 to_date = now
                 logger.info(f"Adjusted to_date to current time: {now}")
             else:
@@ -316,8 +316,194 @@ def get_metrics():
                 'timestamp': _utc_now_iso()
             }
         }), 500
-    # Placeholder implementation
-    # Will be implemented in Task 2.4
-    return jsonify({
-        'message': 'Metrics endpoint - to be implemented'
-    }), 501
+
+
+@api_bp.route('/team-engagement', methods=['GET'])
+def get_team_engagement():
+    """
+    Get team engagement metrics for issues and PRs within a date range.
+
+    Query Parameters:
+        from_date (str, required): Start date in YYYY-MM-DD format
+        to_date (str, required): End date in YYYY-MM-DD format
+        timezone (str, optional): IANA timezone name (default: "UTC")
+        owner (str, optional): Repository owner (default from config)
+        repo (str, optional): Repository name (default from config)
+
+    Returns:
+        tuple: JSON response with engagement metrics, HTTP status code
+
+    Success Response (200):
+        {
+            "team": {
+                "issue": {...},
+                "pr": {...}
+            },
+            "contributors": {
+                "issue": {...},
+                "pr": {...}
+            },
+            "meta": {
+                "from_date": "2026-01-31",
+                "to_date": "2026-02-02",
+                "timezone": "UTC",
+                "repository": "PowerShell/PowerShell",
+                "timestamp": "2026-02-03T10:30:00Z"
+            }
+        }
+    """
+    try:
+        # Extract query parameters
+        from_date_str = request.args.get('from_date', '').strip()
+        to_date_str = request.args.get('to_date', '').strip()
+        timezone_str = request.args.get('timezone', 'UTC').strip()
+        owner = request.args.get('owner', current_app.config.get('GITHUB_OWNER', 'PowerShell'))
+        repo = request.args.get('repo', current_app.config.get('GITHUB_REPO', 'PowerShell'))
+
+        # Validate required parameters
+        if not from_date_str or not to_date_str:
+            logger.warning(f"Team engagement request missing date parameters")
+            return jsonify({
+                'error': {
+                    'code': 'MISSING_PARAMETER',
+                    'message': 'Both from_date and to_date parameters are required',
+                    'timestamp': _utc_now_iso()
+                }
+            }), 400
+
+        # Validate owner and repo
+        if not owner or not repo:
+            logger.warning(f"Invalid owner/repo: {owner}/{repo}")
+            return jsonify({
+                'error': {
+                    'code': 'INVALID_PARAMETER',
+                    'message': 'Owner and repo must be non-empty strings',
+                    'timestamp': _utc_now_iso()
+                }
+            }), 400
+
+        # Parse and validate date format
+        try:
+            from_date = datetime.strptime(from_date_str, '%Y-%m-%d')
+            to_date = datetime.strptime(to_date_str, '%Y-%m-%d')
+        except ValueError as e:
+            logger.warning(f"Invalid date format: {str(e)}")
+            return jsonify({
+                'error': {
+                    'code': 'INVALID_DATE_FORMAT',
+                    'message': 'Dates must be in YYYY-MM-DD format',
+                    'timestamp': _utc_now_iso()
+                }
+            }), 400
+
+        # Validate date range
+        if from_date > to_date:
+            return jsonify({
+                'error': {
+                    'code': 'INVALID_DATE_RANGE',
+                    'message': 'From date must be before or equal to to date',
+                    'timestamp': _utc_now_iso()
+                }
+            }), 400
+
+        # Validate max range (200 days)
+        days_diff = (to_date - from_date).days
+        if days_diff > 200:
+            return jsonify({
+                'error': {
+                    'code': 'DATE_RANGE_TOO_LARGE',
+                    'message': 'Date range cannot exceed 200 days',
+                    'timestamp': _utc_now_iso()
+                }
+            }), 400
+
+        # Validate and apply timezone
+        try:
+            user_tz = ZoneInfo(timezone_str)
+        except Exception as e:
+            return jsonify({
+                'error': {
+                    'code': 'INVALID_TIMEZONE',
+                    'message': f'Invalid timezone "{timezone_str}"',
+                    'timestamp': _utc_now_iso()
+                }
+            }), 400
+
+        # Set time to start and end of day in user's timezone, then convert to UTC
+        from_date_tz = from_date.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=user_tz)
+        to_date_tz = to_date.replace(hour=23, minute=59, second=59, microsecond=0, tzinfo=user_tz)
+
+        # Convert to UTC
+        from_date_utc = from_date_tz.astimezone(timezone.utc)
+        to_date_utc = to_date_tz.astimezone(timezone.utc)
+
+        # Validate dates are not in the future
+        now = datetime.now(timezone.utc)
+        if to_date_utc > now:
+            if (to_date_utc - now).days <= 1:
+                to_date_utc = now
+            else:
+                return jsonify({
+                    'error': {
+                        'code': 'FUTURE_DATE_NOT_ALLOWED',
+                        'message': 'Cannot select future dates',
+                        'timestamp': _utc_now_iso()
+                    }
+                }), 400
+
+        logger.info(f"Fetching team engagement: from={from_date_str}, to={to_date_str}, repo={owner}/{repo}")
+
+        # Convert to naive datetime for backward compatibility
+        from_date_naive = from_date_utc.replace(tzinfo=None)
+        to_date_naive = to_date_utc.replace(tzinfo=None)
+
+        # Fetch engagement data for both team and contributors in parallel
+        from concurrent.futures import ThreadPoolExecutor
+        
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            future_team = executor.submit(
+                github_events.get_team_engagement,
+                from_date_naive,
+                to_date_naive,
+                github_events.PS_TEAM_MEMBERS,
+                owner,
+                repo
+            )
+            future_contributors = executor.submit(
+                github_events.get_team_engagement,
+                from_date_naive,
+                to_date_naive,
+                github_events.PS_CONTRIBUTORS,
+                owner,
+                repo
+            )
+            
+            team_data = future_team.result()
+            contributors_data = future_contributors.result()
+
+        # Build response
+        response = {
+            'team': team_data,
+            'contributors': contributors_data,
+            'meta': {
+                'from_date': from_date_str,
+                'to_date': to_date_str,
+                'timezone': timezone_str,
+                'repository': f"{owner}/{repo}",
+                'timestamp': _utc_now_iso()
+            }
+        }
+
+        logger.info(f"Team engagement retrieved successfully")
+        return jsonify(response), 200
+
+    except Exception as e:
+        logger.error(f"Error in get_team_engagement: {str(e)}", exc_info=True)
+        sanitized_msg = sanitize_error_message(str(e))
+        return jsonify({
+            'error': {
+                'code': 'INTERNAL_ERROR',
+                'message': f'An error occurred: {sanitized_msg}',
+                'timestamp': _utc_now_iso()
+            }
+        }), 500

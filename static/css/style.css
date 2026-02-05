@@ -25,6 +25,32 @@ body {
     --info-color: #17a2b8;
     --border-radius: 0.5rem;
     --transition-speed: 0.3s;
+    --team-color: #9333ea; /* purple-600 */
+    --contributor-color: #f97316; /* orange-500 */
+}
+
+/* Tab Navigation Styles */
+.tab-button {
+    cursor: pointer;
+    outline: none;
+}
+
+.tab-button:hover {
+    background-color: #f9fafb;
+}
+
+.tab-button.active {
+    border-bottom-color: #3b82f6;
+    color: #3b82f6;
+    background-color: #eff6ff;
+}
+
+.tab-content {
+    display: block;
+}
+
+.tab-content.hidden {
+    display: none;
 }
 
 /* Day Selection Buttons */
@@ -33,13 +59,13 @@ body {
 }
 
 .day-button.selected {
-    background-color: #2563eb;
-    color: white;
-    border-color: #2563eb;
+    background-color: #2563eb !important;
+    color: white !important;
+    border-color: #2563eb !important;
 }
 
 .day-button.selected:hover {
-    background-color: #1d4ed8;
+    background-color: #1d4ed8 !important;
 }
 
 /* Custom Date Picker Styles */

@@ -148,6 +148,35 @@ class APIClient {
                 return message || `An error occurred (${status}). Please try again.`;
         }
     }
+
+    /**
+     * Get team engagement metrics
+     * @param {string} fromDate - Start date in YYYY-MM-DD format
+     * @param {string} toDate - End date in YYYY-MM-DD format
+     * @param {string} owner - Repository owner (optional)
+     * @param {string} repo - Repository name (optional)
+     * @returns {Promise<Object>} Team engagement data
+     */
+    async getTeamEngagement(fromDate, toDate, owner = null, repo = null) {
+        const params = new URLSearchParams({
+            from_date: fromDate,
+            to_date: toDate,
+            timezone: this.getUserTimezone()
+        });
+        
+        if (owner) params.append('owner', owner);
+        if (repo) params.append('repo', repo);
+
+        const url = `${this.baseURL}/api/team-engagement?${params.toString()}`;
+        
+        try {
+            const response = await this._fetchWithTimeout(url);
+            return await this._handleResponse(response);
+        } catch (error) {
+            console.error('Error fetching team engagement:', error);
+            throw error;
+        }
+    }
 }
 
 // Export for use in other modules

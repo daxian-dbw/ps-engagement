@@ -4,8 +4,32 @@
 
 {% block content %}
 <div class="max-w-7xl mx-auto">
-    <!-- Search Panel -->
-    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+    <!-- Tab Navigation -->
+    <div class="bg-white rounded-t-lg shadow-md mb-0">
+        <div class="flex border-b border-gray-200">
+            <button 
+                id="individual-tab" 
+                class="tab-button flex-1 py-4 px-6 text-center font-semibold transition-all duration-200 border-b-2 border-blue-500 text-blue-600 bg-blue-50"
+                data-tab="individual"
+            >
+                <span class="text-2xl mr-2">👤</span>
+                Individual Activity
+            </button>
+            <button 
+                id="team-tab" 
+                class="tab-button flex-1 py-4 px-6 text-center font-semibold transition-all duration-200 border-b-2 border-transparent text-gray-600 hover:text-gray-800 hover:bg-gray-50"
+                data-tab="team"
+            >
+                <span class="text-2xl mr-2">👥</span>
+                Team Engagement
+            </button>
+        </div>
+    </div>
+
+    <!-- Individual Activity View -->
+    <div id="individual-view" class="tab-content">
+        <!-- Search Panel -->
+        <div class="bg-white rounded-b-lg shadow-md p-6 mb-6">
         <h2 class="text-xl font-semibold text-gray-800 mb-4">
             Search GitHub User Activity
         </h2>
@@ -50,7 +74,7 @@
                     <button type="button" class="day-button px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition focus:outline-none focus:ring-2 focus:ring-blue-500" data-days="3">
                         3
                     </button>
-                    <button type="button" class="day-button px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition focus:outline-none focus:ring-2 focus:ring-blue-500 bg-blue-500 text-white hover:bg-blue-600 selected" data-days="7">
+                    <button type="button" class="day-button px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition focus:outline-none focus:ring-2 focus:ring-blue-500" data-days="7">
                         7
                     </button>
                     <button type="button" class="day-button px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition focus:outline-none focus:ring-2 focus:ring-blue-500" data-days="14">
@@ -424,14 +448,285 @@
             
         </div>
     </div>
+    </div>
+    <!-- End of Individual Activity View -->
+
+    <!-- Team Engagement View -->
+    <div id="team-view" class="tab-content hidden">
+        <!-- Search Panel -->
+        <div class="bg-white rounded-b-lg shadow-md p-6 mb-6">
+            <h2 class="text-xl font-semibold text-gray-800 mb-4">
+                📊 Query Team Engagement Metrics
+            </h2>
+            
+            <!-- Error Message Container -->
+            <div id="team-error-message" class="hidden bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4" role="alert">
+                <div class="flex items-center">
+                    <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"></path>
+                    </svg>
+                    <span id="team-error-message-text">An error occurred</span>
+                </div>
+            </div>
+            
+            <!-- Search Form -->
+            <form id="team-search-form" class="space-y-4">
+                <!-- Day Selection Buttons -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                        Time Period (Days)
+                    </label>
+                    <div class="flex flex-wrap gap-2">
+                        <button type="button" class="team-day-button day-button px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition focus:outline-none focus:ring-2 focus:ring-blue-500" data-days="1">
+                            1
+                        </button>
+                        <button type="button" class="team-day-button day-button px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition focus:outline-none focus:ring-2 focus:ring-blue-500" data-days="3">
+                            3
+                        </button>
+                        <button type="button" class="team-day-button day-button px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition focus:outline-none focus:ring-2 focus:ring-blue-500" data-days="7">
+                            7
+                        </button>
+                        <button type="button" class="team-day-button day-button px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition focus:outline-none focus:ring-2 focus:ring-blue-500" data-days="14">
+                            14
+                        </button>
+                        <button type="button" class="team-day-button day-button px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition focus:outline-none focus:ring-2 focus:ring-blue-500" data-days="30">
+                            30
+                        </button>
+                        <button type="button" id="team-custom-button" class="team-day-button day-button custom-button px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            Custom
+                        </button>
+                    </div>
+                    
+                    <!-- Custom Date Picker -->
+                    <div id="team-custom-date-picker" class="hidden mt-4 p-4 bg-gray-50 rounded-lg border border-gray-300">
+                        <div class="mb-3">
+                            <h4 class="text-sm font-medium text-gray-700 mb-2">Select Date Range</h4>
+                        </div>
+                        <div class="flex flex-col sm:flex-row gap-3">
+                            <div class="flex-1">
+                                <label for="team-from-date" class="block text-xs font-medium text-gray-600 mb-1">
+                                    From Date
+                                </label>
+                                <input 
+                                    type="date" 
+                                    id="team-from-date" 
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                >
+                            </div>
+                            <div class="flex-1">
+                                <label for="team-to-date" class="block text-xs font-medium text-gray-600 mb-1">
+                                    To Date
+                                </label>
+                                <input 
+                                    type="date" 
+                                    id="team-to-date" 
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                >
+                            </div>
+                        </div>
+                        <div id="team-date-range-error" class="hidden mt-2 text-sm text-red-600"></div>
+                    </div>
+                </div>
+                
+                <!-- Submit Button -->
+                <div>
+                    <button 
+                        type="submit" 
+                        id="team-search-button"
+                        class="w-full sm:w-auto px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition flex items-center justify-center"
+                    >
+                        <span id="team-button-text">Go</span>
+                        <div id="team-button-spinner" class="hidden ml-2 spinner" style="width: 20px; height: 20px; border-width: 2px;"></div>
+                    </button>
+                </div>
+            </form>
+        </div>
+        
+        <!-- Results Container -->
+        <div id="team-results-container" class="hidden">
+            <!-- Loading State -->
+            <div id="team-loading" class="bg-white rounded-lg shadow-md p-6 mb-6">
+                <div class="flex items-center justify-center py-8">
+                    <div class="spinner mr-3" style="width: 32px; height: 32px; border-width: 3px;"></div>
+                    <span class="text-gray-600 text-lg">Loading team engagement data...</span>
+                </div>
+            </div>
+            
+            <!-- Summary Section -->
+            <div id="team-summary" class="hidden">
+                <!-- Header -->
+                <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                    <h3 class="text-2xl font-bold text-gray-800 mb-2">Team Engagement Summary</h3>
+                    <p class="text-gray-600">
+                        Showing data for <span id="team-summary-date-range" class="font-semibold"></span>
+                    </p>
+                    <p class="text-sm text-gray-500 mt-1">
+                        Data fetched: <span id="team-summary-timestamp" class="font-medium">-</span>
+                    </p>
+                </div>
+                
+                <!-- Issues Metrics -->
+                <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                    <h4 class="text-xl font-bold text-gray-800 mb-4 flex items-center">
+                        <span class="text-2xl mr-2">📝</span>
+                        ISSUES
+                    </h4>
+                    
+                    <!-- First Row: Total and Closed -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <!-- Total Issues Created -->
+                        <div class="bg-blue-50 rounded-lg p-4 border-2 border-blue-300">
+                            <div class="flex items-center mb-2">
+                                <span class="text-xl mr-2">📊</span>
+                                <span class="text-gray-700 font-semibold">Total Issues Created</span>
+                            </div>
+                            <p class="text-3xl font-bold text-blue-600">
+                                <span id="team-issues-total">0</span>
+                            </p>
+                        </div>
+                        
+                        <!-- Closed Issues -->
+                        <div class="bg-gray-50 rounded-lg p-4 border-2 border-gray-300">
+                            <div class="flex items-center mb-2">
+                                <span class="text-xl mr-2">✅</span>
+                                <span class="text-gray-700 font-semibold">Closed Issues</span>
+                            </div>
+                            <p class="text-3xl font-bold text-gray-700">
+                                <span id="team-issues-closed-total">0</span>
+                                <span class="text-xl ml-2">(<span id="team-issues-closed-pct">0</span>%)</span>
+                                <span class="text-base ml-3 text-gray-600 font-semibold">• <span id="team-issues-closed-manual">0</span> manually closed • <span id="team-issues-closed-pr">0</span> closed by PR</span>
+                            </p>
+                        </div>
+                    </div>
+                    
+                    <!-- Second Row: Team and Contributors Engagement -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <!-- Team Engagement -->
+                        <div class="bg-purple-50 rounded-lg p-4 border-2 border-purple-300">
+                            <div class="flex items-center mb-2">
+                                <span class="text-xl mr-2">🎯</span>
+                                <span class="text-gray-700 font-semibold">Team Engaged</span>
+                            </div>
+                            <p class="text-3xl font-bold text-purple-600">
+                                <span id="team-issues-team-count">0</span>
+                                <span class="text-xl ml-2">(<span id="team-issues-team-pct">0</span>%)</span>
+                            </p>
+                        </div>
+                        
+                        <!-- Contributors Engagement -->
+                        <div class="bg-orange-50 rounded-lg p-4 border-2 border-orange-300">
+                            <div class="flex items-center mb-2">
+                                <span class="text-xl mr-2">🤝</span>
+                                <span class="text-gray-700 font-semibold">Contributors Engaged</span>
+                            </div>
+                            <p class="text-3xl font-bold text-orange-600">
+                                <span id="team-issues-contrib-count">0</span>
+                                <span class="text-xl ml-2">(<span id="team-issues-contrib-pct">0</span>%)</span>
+                            </p>
+                        </div>
+                    </div>
+                    
+                    <!-- Issues Chart -->
+                    <div class="mt-6">
+                        <canvas id="issues-chart" height="80"></canvas>
+                    </div>
+                </div>
+                
+                <!-- PRs Metrics -->
+                <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                    <h4 class="text-xl font-bold text-gray-800 mb-4 flex items-center">
+                        <span class="text-2xl mr-2">🚀</span>
+                        PULL REQUESTS
+                    </h4>
+                    
+                    <!-- First Row: Total and Finished -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <!-- Total PRs Created -->
+                        <div class="bg-green-50 rounded-lg p-4 border-2 border-green-300">
+                            <div class="flex items-center mb-2">
+                                <span class="text-xl mr-2">📊</span>
+                                <span class="text-gray-700 font-semibold">Total PRs Created</span>
+                            </div>
+                            <p class="text-3xl font-bold text-green-600">
+                                <span id="team-prs-total">0</span>
+                            </p>
+                        </div>
+                        
+                        <!-- Finished PRs -->
+                        <div class="bg-gray-50 rounded-lg p-4 border-2 border-gray-300">
+                            <div class="flex items-center mb-2">
+                                <span class="text-xl mr-2">✅</span>
+                                <span class="text-gray-700 font-semibold">Finished PRs</span>
+                            </div>
+                            <p class="text-3xl font-bold text-gray-700">
+                                <span id="team-prs-finished-total">0</span>
+                                <span class="text-xl ml-2">(<span id="team-prs-finished-pct">0</span>%)</span>
+                                <span class="text-base ml-3 text-gray-600 font-semibold">• <span id="team-prs-merged">0</span> merged • <span id="team-prs-closed">0</span> closed</span>
+                            </p>
+                        </div>
+                    </div>
+                    
+                    <!-- Second Row: Team and Contributors Engagement -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <!-- Team Engagement -->
+                        <div class="bg-purple-50 rounded-lg p-4 border-2 border-purple-300">
+                            <div class="flex items-center mb-2">
+                                <span class="text-xl mr-2">🎯</span>
+                                <span class="text-gray-700 font-semibold">Team Engaged</span>
+                            </div>
+                            <p class="text-3xl font-bold text-purple-600">
+                                <span id="team-prs-team-count">0</span>
+                                <span class="text-xl ml-2">(<span id="team-prs-team-pct">0</span>%)</span>
+                            </p>
+                        </div>
+                        
+                        <!-- Contributors Engagement -->
+                        <div class="bg-orange-50 rounded-lg p-4 border-2 border-orange-300">
+                            <div class="flex items-center mb-2">
+                                <span class="text-xl mr-2">🤝</span>
+                                <span class="text-gray-700 font-semibold">Contributors Engaged</span>
+                            </div>
+                            <p class="text-3xl font-bold text-orange-600">
+                                <span id="team-prs-contrib-count">0</span>
+                                <span class="text-xl ml-2">(<span id="team-prs-contrib-pct">0</span>%)</span>
+                            </p>
+                        </div>
+                    </div>
+                    
+                    <!-- PRs Chart -->
+                    <div class="mt-6">
+                        <canvas id="prs-chart" height="80"></canvas>
+                    </div>
+                </div>
+                
+                <!-- Legend -->
+                <div class="bg-white rounded-lg shadow-md p-4">
+                    <div class="flex flex-wrap gap-6 justify-center text-sm">
+                        <div class="flex items-center">
+                            <div class="w-4 h-4 bg-purple-500 rounded mr-2"></div>
+                            <span class="text-gray-700">🎯 Team = PS_TEAM_MEMBERS</span>
+                        </div>
+                        <div class="flex items-center">
+                            <div class="w-4 h-4 bg-orange-500 rounded mr-2"></div>
+                            <span class="text-gray-700">🤝 Contributors = PS_CONTRIBUTORS</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <!-- End of Team Engagement View -->
 </div>
 {% endblock %}
 
 {% block scripts %}
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
 <!-- Flatpickr JS -->
 <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 <!-- JavaScript files will be linked in correct order -->
 <script src="{{ url_for('static', filename='js/api-client.js') }}"></script>
 <script src="{{ url_for('static', filename='js/ui-components.js') }}"></script>
+<script src="{{ url_for('static', filename='js/team-engagement.js') }}"></script>
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 {% endblock %}
