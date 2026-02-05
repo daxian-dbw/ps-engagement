@@ -14,6 +14,7 @@ class TeamEngagement {
         this.selectionMode = 'quick'; // 'quick' or 'custom'
         this.customRange = { from: null, to: null };
         this.charts = { issues: null, prs: null };
+        this.currentData = null; // Store fetched data for detail views
         
         // Cache DOM elements
         this.elements = {
@@ -112,6 +113,38 @@ class TeamEngagement {
                     this.handleDayButtonClick(button);
                 }
             });
+        });
+        
+        // Detail view modal listeners
+        this.setupModalListeners();
+    }
+    
+    /**
+     * Set up modal event listeners
+     */
+    setupModalListeners() {
+        const modal = document.getElementById('detail-modal');
+        const closeBtn = document.getElementById('detail-modal-close');
+        
+        // Close button
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => this.closeModal());
+        }
+        
+        // Click outside modal to close
+        if (modal) {
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    this.closeModal();
+                }
+            });
+        }
+        
+        // Escape key to close
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && modal && !modal.classList.contains('hidden')) {
+                this.closeModal();
+            }
         });
     }
 
@@ -384,6 +417,9 @@ class TeamEngagement {
         this.hideLoading();
         this.elements.summary.classList.remove('hidden');
         
+        // Store data for detail views
+        this.currentData = data;
+        
         // Update header
         const fromDate = data.meta.from_date;
         const toDate = data.meta.to_date;
@@ -398,7 +434,149 @@ class TeamEngagement {
         // Render PRs metrics
         this.renderPRsMetrics(data.team.pr, data.contributors.pr);
         
+        // Set up click handlers for detail views
+        this.setupDetailViewHandlers();
+        
         console.log('Team engagement data rendered successfully');
+    }
+    
+    /**
+     * Set up click handlers for detail view cards
+     */
+    setupDetailViewHandlers() {
+        const cards = document.querySelectorAll('[data-detail-view]');
+        cards.forEach(card => {
+            card.addEventListener('click', () => {
+                const viewType = card.dataset.detailView;
+                this.showDetailView(viewType);
+            });
+        });
+    }
+    
+    /**
+     * Show detail view modal
+     */
+    showDetailView(viewType) {
+        if (!this.currentData) return;
+        
+        const modal = document.getElementById('detail-modal');
+        const title = document.getElementById('detail-modal-title');
+        const content = document.getElementById('detail-modal-content');
+        
+        let titleText = '';
+        let items = [];
+        let type = ''; // 'issue' or 'pr'
+        
+        switch(viewType) {
+            case 'issues-closed':
+                titleText = 'Closed Issues';
+                items = [
+                    ...this.currentData.team.issue.manually_closed_issues.map(i => ({...i, closedType: 'manually'})),
+                    ...this.currentData.team.issue.pr_triggered_closed_issues.map(i => ({...i, closedType: 'by PR'}))
+                ];
+                type = 'issue';
+                break;
+            case 'issues-team-engaged':
+                titleText = 'Team Engaged Issues';
+                items = this.currentData.team.issue.engaged_issues;
+                type = 'issue';
+                break;
+            case 'issues-contrib-engaged':
+                titleText = 'Contributors Engaged Issues';
+                items = this.currentData.contributors.issue.engaged_issues;
+                type = 'issue';
+                break;
+            case 'prs-finished':
+                titleText = 'Finished PRs';
+                items = [
+                    ...this.currentData.team.pr.merged_prs.map(p => ({...p, finishType: 'merged'})),
+                    ...this.currentData.team.pr.closed_prs.map(p => ({...p, finishType: 'closed'}))
+                ];
+                type = 'pr';
+                break;
+            case 'prs-team-engaged':
+                titleText = 'Team Engaged PRs';
+                items = this.currentData.team.pr.engaged_prs;
+                type = 'pr';
+                break;
+            case 'prs-contrib-engaged':
+                titleText = 'Contributors Engaged PRs';
+                items = this.currentData.contributors.pr.engaged_prs;
+                type = 'pr';
+                break;
+        }
+        
+        title.textContent = titleText;
+        content.innerHTML = this.renderDetailList(items, type, viewType);
+        modal.classList.remove('hidden');
+    }
+    
+    /**
+     * Render detail list HTML
+     */
+    renderDetailList(items, type, viewType) {
+        if (items.length === 0) {
+            return '<p class=\"text-gray-500 text-center py-8\">No items to display</p>';
+        }
+        
+        const rows = items.map(item => {
+            const number = item.number;
+            const title = item.title;
+            const url = item.url;
+            const date = new Date(item.created_at).toLocaleDateString();
+            const author = item.author || 'Unknown';
+            
+            let statusInfo = '';
+            if (viewType === 'issues-closed') {
+                const closedBy = item.closed_by || 'Unknown';
+                const statusColor = item.closedType === 'manually' ? 'text-orange-600' : 'text-purple-600';
+                const statusText = item.closedType === 'manually' ? 'Manually closed' : 'Closed by PR';
+                statusInfo = `<span class=\"text-sm font-semibold ${statusColor}\">${statusText}</span><span class=\"text-sm text-gray-600\"> by ${closedBy}</span>`;
+            } else if (viewType === 'prs-finished') {
+                const statusColor = item.finishType === 'merged' ? 'text-green-600' : 'text-gray-600';
+                const statusText = item.finishType === 'merged' ? 'Merged' : 'Closed';
+                statusInfo = `<span class=\"text-sm font-semibold ${statusColor}\">${statusText}</span>`;
+                if (item.finishType === 'merged' && item.merged_by) {
+                    statusInfo += `<span class=\"text-sm text-gray-600\"> by ${item.merged_by}</span>`;
+                }
+            } else {
+                statusInfo = `<span class=\"text-sm text-gray-600\">by ${author}</span>`;
+            }
+            
+            return `
+                <div class=\"border-b border-gray-200 py-3 hover:bg-gray-50 transition-colors\">
+                    <div class=\"flex items-start justify-between\">
+                        <div class=\"flex-1 min-w-0\">
+                            <div class=\"flex items-center gap-2 mb-1\">
+                                <a href=\"${url}\" target=\"_blank\" class=\"text-blue-600 hover:text-blue-800 font-semibold\">#${number}</a>
+                                ${statusInfo}
+                            </div>
+                            <p class=\"text-gray-700 text-sm truncate\" title=\"${title}\">${title}</p>
+                        </div>
+                        <div class=\"text-sm text-gray-500 ml-4 whitespace-nowrap\">${date}</div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+        
+        return `
+            <div class=\"space-y-2\">
+                <p class=\"text-sm text-gray-600 mb-4\">Total: ${items.length} ${type === 'issue' ? 'issue' : 'PR'}${items.length !== 1 ? 's' : ''}</p>
+                <div class=\"divide-y divide-gray-200\">
+                    ${rows}
+                </div>
+            </div>
+        `;
+    }
+    
+    /**
+     * Close modal
+     */
+    closeModal() {
+        const modal = document.getElementById('detail-modal');
+        if (modal) {
+            modal.classList.add('hidden');
+        }
     }
 
     /**
