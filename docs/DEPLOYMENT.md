@@ -14,9 +14,7 @@ This guide will help you deploy the GitHub Maintainer Activity Dashboard to Azur
 - `requirements.txt` - Updated with gunicorn
 - `.deployment` - Azure deployment configuration
 
-## Deployment Options
-
-### Option 1: Azure Portal (Recommended for First Time)
+## Deploy via Azure Portal
 
 1. **Go to Azure Portal**: https://portal.azure.com
 
@@ -62,65 +60,6 @@ This guide will help you deploy the GitHub Maintainer Activity Dashboard to Azur
 6. **Access Your App**:
    - URL: `https://your-app-name.azurewebsites.net`
 
-### Option 2: Azure CLI
-
-```powershell
-# Login to Azure
-az login
-
-# Set variables
-$RESOURCE_GROUP="ps-engagement-rg"
-$APP_NAME="ps-engagement-dashboard"
-$LOCATION="eastus"
-$SKU="B1"  # or "F1" for free tier
-
-# Create resource group
-az group create --name $RESOURCE_GROUP --location $LOCATION
-
-# Create App Service Plan (Linux)
-az appservice plan create `
-    --name "$APP_NAME-plan" `
-    --resource-group $RESOURCE_GROUP `
-    --is-linux `
-    --sku $SKU
-
-# Create Web App
-az webapp create `
-    --name $APP_NAME `
-    --resource-group $RESOURCE_GROUP `
-    --plan "$APP_NAME-plan" `
-    --runtime "PYTHON:3.11"
-
-# Configure startup command
-az webapp config set `
-    --resource-group $RESOURCE_GROUP `
-    --name $APP_NAME `
-    --startup-file "startup.sh"
-
-# Set environment variables
-az webapp config appsettings set `
-    --resource-group $RESOURCE_GROUP `
-    --name $APP_NAME `
-    --settings `
-        GITHUB_TOKEN="your_github_token_here" `
-        GITHUB_OWNER="PowerShell" `
-        GITHUB_REPO="PowerShell" `
-        FLASK_DEBUG="False" `
-        FLASK_SECRET_KEY="generate_a_strong_secret_key"
-
-# Deploy from local directory
-cd e:\arena\myprojs\ps-engagement
-az webapp up --name $APP_NAME --resource-group $RESOURCE_GROUP
-```
-
-### Option 3: VS Code Extension
-
-1. Install "Azure App Service" extension in VS Code
-2. Sign in to Azure (Azure icon in sidebar)
-3. Right-click your workspace folder
-4. Select "Deploy to Web App"
-5. Follow the prompts to create/select App Service
-6. Configure environment variables in Azure Portal
 
 ## Environment Variables Required in Azure
 
