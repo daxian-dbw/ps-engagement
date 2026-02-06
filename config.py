@@ -34,6 +34,10 @@ class Config:
     # Flask Settings
     DEBUG = os.getenv('FLASK_DEBUG', 'True').lower() in ('true', '1', 'yes')
     
+    # Deployment Settings
+    # Azure sets this automatically, can be used to detect production
+    WEBSITE_HOSTNAME = os.getenv('WEBSITE_HOSTNAME')  # Set by Azure App Service
+    
     @classmethod
     def validate(cls):
         """
